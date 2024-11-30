@@ -2,6 +2,15 @@
 <html>
 <head>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding-top: 40px; /* Отступ сверху */
+        }
+        canvas {
+            display: block;
+        }
+    </style>
 </head>
 <body>
     <script>
@@ -25,6 +34,7 @@ class WaveCircle {
         this.color = color(random(255), random(255), random(255), 150);
         this.parent = parent; // Ссылка на родительскую окружность (если есть)
         this.children = []; // Массив вложенных окружностей
+        this.nestingLevel = parent ? parent.nestingLevel + 1 : 0; // Уровень вложенности
     }
 
     update() {
@@ -190,6 +200,9 @@ class AudioPlayer {
 const audioPlayer = new AudioPlayer();
 let circles = [];
 let growthSpeed = 1;
+let MAX_CIRCLES = 10; // Максимальное количество окружностей
+let MAX_NESTING_LEVEL = 3; // Максимальный уровень вложенности
+let clearButton;
 
 function handleCollision(collisionPoint) {
     const { x, radius1, radius2 } = collisionPoint;
@@ -206,8 +219,33 @@ function radiusToSampleIndex(radius, minRadius, maxRadius) {
 }
 
 function setup() {
-    createCanvas(800, 800);
-    background(220);
+            createCanvas(800, 800);
+            background(220);
+            clearButton = createButton('Clear');
+            clearButton.position(width - 70, 10); // Позиция кнопки в отступе
+            clearButton.mousePressed(clearField);
+			
+		   clearButton.style('width','60px'); //добавим ширину кнопки
+    	   clearButton.style('height','25px'); //добавим высоту кнопки	
+           this.buttonX = clearButton.elt.offsetLeft; //получим координаты кнопки
+           this.buttonY = clearButton.elt.offsetTop;
+           this.buttonWidth = clearButton.elt.offsetWidth;
+           this.buttonHeight = clearButton.elt.offsetHeight;
+        }
+
+function clearField() {
+    circles = []; // Очищаем массив окружностей
+    growthSpeed = 1; // Сбрасываем скорость роста
+    // Остановить все звуки (если необходимо)
+    if (audioPlayer.context && audioPlayer.context.state === 'running') {
+        audioPlayer.context.suspend().then(() => {
+          console.log('Audio context suspended');
+          // Возобновление работы контекста (если необходимо в будущем)
+           audioPlayer.context.resume().then(() => {
+             console.log('Audio context resumed');
+           });
+        });
+      }
 }
 
 function draw() {
@@ -224,26 +262,33 @@ function draw() {
     }
 }
 
+
 function mousePressed() {
-    let newCircle = new WaveCircle(mouseX, mouseY, growthSpeed);
-    circles.push(newCircle);
+    // Проверка на наведение мыши на кнопку
+    const isOverButton = mouseX >= this.buttonX && mouseX <= this.buttonX + this.buttonWidth &&
+                         mouseY >= this.buttonY && mouseY <= this.buttonY + this.buttonHeight;
 
-    for (let i = 0; i < circles.length - 1; i++) {
-        let otherCircle = circles[i];
-        let distance = dist(newCircle.centerX, newCircle.centerY, otherCircle.centerX, otherCircle.centerY);
+    if (circles.length < MAX_CIRCLES && !isOverButton) { //  Изменение здесь!
+        let newCircle = new WaveCircle(mouseX, mouseY, growthSpeed);
+        let parentCircle = null;
 
-        if (distance <= otherCircle.currentRadius) {
-            newCircle.parent = otherCircle;
-            otherCircle.children.push(newCircle);
-            break;
+        // Находим родительский круг
+        for (let i = circles.length - 1; i >= 0; i--) {
+            let otherCircle = circles[i];
+            if (otherCircle.nestingLevel < MAX_NESTING_LEVEL && dist(mouseX, mouseY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
+                parentCircle = otherCircle;
+                break;
+            }
         }
+        newCircle.parent = parentCircle;
+        if (parentCircle) {
+            parentCircle.children.push(newCircle);
+        }
+        circles.push(newCircle);
     }
 }
 
-function keyPressed() {
-    if (keyCode === UP_ARROW) growthSpeed += 0.5;
-    if (keyCode === DOWN_ARROW) growthSpeed = max(0.5, growthSpeed - 0.5);
-}
+
     </script>
 </body>
 </html>
