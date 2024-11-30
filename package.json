@@ -1,0 +1,9 @@
+{
+  "name": "wave-circle-sound-game",
+  "version": "1.0.0",
+  "description": "Interactive sound visualization game",
+  "scripts": {
+    "start": "echo 'Static site'"
+  },
+  "type": "module"
+}
