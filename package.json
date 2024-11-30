@@ -4,7 +4,7 @@
   "description": "Interactive sound visualization game",
   "type": "module",
   "scripts": {
-   "start": "node_modules/.bin/serve ./ -p $PORT"
+    "start": "PATH=$PATH:./node_modules/.bin && serve ./ -p $PORT"
   },
   "dependencies": {
     "serve": "^14.2.1"
