@@ -1,12 +1,12 @@
 {
   "name": "wave-circle-sound-game",
-  "version": "1.0.0",
+  "version": "1.0.0", 
   "description": "Interactive sound visualization game",
+  "type": "module",
   "scripts": {
-    "start": "echo 'Static site'"
+    "start": "npx http-server ./ -p $PORT"
   },
-  "type": "module"
-   "scripts": {
-  "start": "npx http-server ./ -p $PORT"
-}
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
 }
