@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "Interactive sound visualization game",
   "scripts": {
-    "start": "node server.js"
+    "start": "npx serve ./ -p $PORT"
   },
   "dependencies": {
-    "express": "^4.17.1"
+    "serve": "^14.2.1"
   }
 }
