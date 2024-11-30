@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+</head>
+<body>
+    <script>
+class CollisionPoint {
+    constructor(x, y, radius1, radius2, timestamp) {
+        this.x = x;
+        this.y = y;
+        this.radius1 = radius1;
+        this.radius2 = radius2;
+        this.timestamp = timestamp;
+    }
+}
+
+class WaveCircle {
+    constructor(x, y, growthSpeed = 1, parent = null) {
+        this.centerX = x;
+        this.centerY = y;
+        this.currentRadius = 0;
+        this.growthRate = growthSpeed;
+        this.direction = 1; // 1 - расширение, -1 - сжатие
+        this.color = color(random(255), random(255), random(255), 150);
+        this.parent = parent; // Ссылка на родительскую окружность (если есть)
+        this.children = []; // Массив вложенных окружностей
+    }
+
+    update() {
+        if (this.direction === 1) {
+            this.currentRadius += this.growthRate;
+        } else {
+            this.currentRadius = max(this.currentRadius - this.growthRate, 0);
+            if (this.currentRadius <= 0) {
+                this.direction = 1; // Начинаем новый цикл
+            }
+        }
+
+        // Ограничиваем вложенную окружность радиусом родительской
+        if (this.parent) {
+            let maxRadius = abs(this.parent.currentRadius - dist(this.centerX, this.centerY, this.parent.centerX, this.parent.centerY));
+            if (this.currentRadius >= maxRadius) {
+                this.direction = -1;
+            }
+        }
+    }
+
+    display() {
+        noFill();
+        stroke(this.color);
+        strokeWeight(2);
+        ellipse(this.centerX, this.centerY, this.currentRadius * 2, this.currentRadius * 2);
+    }
+
+    checkCollision(other) {
+        let distance = dist(this.centerX, this.centerY, other.centerX, other.centerY);
+
+        // Проверка столкновения с родительской окружностью
+        if (this.parent === other) {
+            let collisionDistance = abs(this.currentRadius - other.currentRadius);
+            if (abs(distance - collisionDistance) < 1) {
+                this.direction *= -1;
+                other.direction *= -1;
+
+                // Добавляем озвучку столкновения
+                let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
+                let collisionX = this.centerX + this.currentRadius * cos(angle);
+                let collisionY = this.centerY + this.currentRadius * sin(angle);
+
+                const collisionPoint = new CollisionPoint(
+                    collisionX,
+                    collisionY,
+                    this.currentRadius,
+                    other.currentRadius,
+                    frameCount
+                );
+                handleCollision(collisionPoint); // Вызываем функцию handleCollision явно
+            }
+            return;
+        }
+
+        // Проверка столкновения с вложенной окружностью
+        if (other.parent === this) {
+            let collisionDistance = abs(this.currentRadius - other.currentRadius);
+            if (abs(distance - collisionDistance) < 1) {
+                this.direction *= -1;
+                other.direction *= -1;
+
+                // Добавляем озвучку столкновения
+                let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
+                let collisionX = this.centerX + this.currentRadius * cos(angle);
+                let collisionY = this.centerY + this.currentRadius * sin(angle);
+
+                const collisionPoint = new CollisionPoint(
+                    collisionX,
+                    collisionY,
+                    this.currentRadius,
+                    other.currentRadius,
+                    frameCount
+                );
+                handleCollision(collisionPoint); // Вызываем функцию handleCollision явно
+            }
+            return;
+        }
+
+        // Стандартное столкновение между двумя внешними окружностями
+        let sumRadii = this.currentRadius + other.currentRadius;
+        if (distance <= sumRadii) {
+            this.direction *= -1;
+            other.direction *= -1;
+
+            let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
+            let collisionX = this.centerX + this.currentRadius * cos(angle);
+            let collisionY = this.centerY + this.currentRadius * sin(angle);
+
+            const collisionPoint = new CollisionPoint(
+                collisionX,
+                collisionY,
+                this.currentRadius,
+                other.currentRadius,
+                frameCount
+            );
+            handleCollision(collisionPoint);
+        }
+    }
+} // Закрываем класс WaveCircle
+
+class AudioPlayer {
+    constructor() {
+        this.context = null;
+        this.samples = {};
+        this.masterGainNode = null;
+        document.addEventListener("click", () => this.initAudioContext(), { once: true });
+    }
+
+    initAudioContext() {
+        this.context = new (window.AudioContext || window.webkitAudioContext)();
+        this.masterGainNode = this.context.createGain();
+        this.masterGainNode.gain.value = 0.8;
+        this.masterGainNode.connect(this.context.destination);
+        this.loadSamples();
+    }
+
+    async loadSamples() {
+        for (let i = 1; i <= 22; i++) {
+            const url = `samples/${String(i).padStart(2, "0")}.wav`;
+            this.samples[i] = await this.loadSample(url);
+        }
+        console.log("All samples loaded.");
+    }
+
+    async loadSample(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Failed to load sample: ${url}`);
+            const arrayBuffer = await response.arrayBuffer();
+            return await this.context.decodeAudioData(arrayBuffer);
+        } catch (error) {
+            console.error(error);
+            return null;
+        }
+    }
+
+    playSample(sampleIndex, x, canvasWidth) {
+        if (!this.context || !this.samples[sampleIndex]) return;
+
+        const sample = this.samples[sampleIndex];
+        const source = this.context.createBufferSource();
+        source.buffer = sample;
+
+        const panner = this.context.createStereoPanner();
+        const normalizedX = (x / canvasWidth) * 2 - 1;
+        panner.pan.setValueAtTime(normalizedX, this.context.currentTime);
+
+        const gainNode = this.context.createGain();
+        gainNode.gain.setValueAtTime(0.3, this.context.currentTime);
+        gainNode.gain.linearRampToValueAtTime(
+            0,
+            this.context.currentTime + sample.duration - 0.05
+        );
+
+        source.connect(gainNode);
+        gainNode.connect(panner);
+        panner.connect(this.masterGainNode);
+        source.start();
+    }
+}
+
+const audioPlayer = new AudioPlayer();
+let circles = [];
+let growthSpeed = 1;
+
+function handleCollision(collisionPoint) {
+    const { x, radius1, radius2 } = collisionPoint;
+    const sampleIndex1 = radiusToSampleIndex(radius1, 0, 300);
+    const sampleIndex2 = radiusToSampleIndex(radius2, 0, 300);
+
+    audioPlayer.playSample(sampleIndex1, x, width);
+    audioPlayer.playSample(sampleIndex2, x, width);
+}
+
+function radiusToSampleIndex(radius, minRadius, maxRadius) {
+    const normalized = 1 - (radius - minRadius) / (maxRadius - minRadius);
+    return Math.round(Math.max(0, Math.min(1, normalized)) * 21) + 1;
+}
+
+function setup() {
+    createCanvas(800, 800);
+    background(220);
+}
+
+function draw() {
+    background(220);
+
+    for (let i = 0; i < circles.length; i++) {
+        let circle = circles[i];
+        circle.update();
+        circle.display();
+
+        for (let j = i + 1; j < circles.length; j++) {
+            circle.checkCollision(circles[j]);
+        }
+    }
+}
+
+function mousePressed() {
+    let newCircle = new WaveCircle(mouseX, mouseY, growthSpeed);
+    circles.push(newCircle);
+
+    for (let i = 0; i < circles.length - 1; i++) {
+        let otherCircle = circles[i];
+        let distance = dist(newCircle.centerX, newCircle.centerY, otherCircle.centerX, otherCircle.centerY);
+
+        if (distance <= otherCircle.currentRadius) {
+            newCircle.parent = otherCircle;
+            otherCircle.children.push(newCircle);
+            break;
+        }
+    }
+}
+
+function keyPressed() {
+    if (keyCode === UP_ARROW) growthSpeed += 0.5;
+    if (keyCode === DOWN_ARROW) growthSpeed = max(0.5, growthSpeed - 0.5);
+}
+    </script>
+</body>
+</html>
