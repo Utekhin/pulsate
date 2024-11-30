@@ -7,7 +7,6 @@
     "start": "npx serve ./ -p $PORT"
   },
   "dependencies": {
-    "chalk": "^4.1.2",
     "serve": "^14.2.1"
   }
 }
