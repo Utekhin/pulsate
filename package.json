@@ -6,4 +6,7 @@
     "start": "echo 'Static site'"
   },
   "type": "module"
+   "scripts": {
+  "start": "npx http-server ./ -p $PORT"
+}
 }
