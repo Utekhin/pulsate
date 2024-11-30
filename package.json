@@ -3,10 +3,9 @@
   "version": "1.0.0",
   "description": "Interactive sound visualization game",
   "scripts": {
-    "start": "node index.js",
-    "dev": "npx serve ./ -p $PORT"
-  },
-  "dependencies": {
-    "serve": "^14.2.1"
+  "start": "node index.js",
+  "dev": "npx serve ./ -p $PORT"
+},
+"dependencies": { 
   }
 }
