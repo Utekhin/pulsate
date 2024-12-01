@@ -5,7 +5,7 @@
     <style>
         body {
             margin: 0;
-            padding-top: 40px; /* Отступ сверху */
+            padding-top: 40px;
         }
         canvas {
             display: block;
@@ -14,13 +14,55 @@
 </head>
 <body>
     <script>
+class KDTree {
+    constructor(points = [], depth = 0) {
+        if (points.length === 0) {
+            this.point = null;
+            this.left = null;
+            this.right = null;
+            return;
+        }
+
+        const axis = depth % 2; // 0 для x, 1 для y
+        points.sort((a, b) => a[axis] - b[axis]);
+        const median = Math.floor(points.length / 2);
+
+        this.point = points[median];
+        this.left = new KDTree(points.slice(0, median), depth + 1);
+        this.right = new KDTree(points.slice(median + 1), depth + 1);
+    }
+
+    // Рекурсивный поиск ближайших соседей в пределах заданного радиуса
+    rangeSearch(target, radius, depth = 0, results = []) {
+        if (!this.point) return results;
+
+        const axis = depth % 2; // 0 для x, 1 для y
+        const distance = dist(this.point[0], this.point[1], target[0], target[1]);
+
+        if (distance <= radius) {
+            results.push(this.point.data); // Добавляем объект круга
+        }
+
+        const diff = target[axis] - this.point[axis];
+        const nextBranch = diff < 0 ? this.left : this.right;
+        const otherBranch = diff < 0 ? this.right : this.left;
+
+        if (nextBranch) nextBranch.rangeSearch(target, radius, depth + 1, results);
+        if (Math.abs(diff) <= radius && otherBranch) {
+            otherBranch.rangeSearch(target, radius, depth + 1, results);
+        }
+
+        return results;
+    }
+}
+
 class CollisionPoint {
     constructor(x, y, radius1, radius2, timestamp) {
-        this.x = x;
-        this.y = y;
-        this.radius1 = radius1;
-        this.radius2 = radius2;
-        this.timestamp = timestamp;
+        this.x = x;          // Координата X точки столкновения
+        this.y = y;          // Координата Y точки столкновения
+        this.radius1 = radius1; // Радиус первого круга
+        this.radius2 = radius2; // Радиус второго круга
+        this.timestamp = timestamp; // Время столкновения (в кадрах)
     }
 }
 
@@ -30,28 +72,29 @@ class WaveCircle {
         this.centerY = y;
         this.currentRadius = 0;
         this.growthRate = growthSpeed;
-        this.direction = 1; // 1 - расширение, -1 - сжатие
+        this.direction = 1; 
         this.color = color(random(255), random(255), random(255), 150);
-        this.parent = parent; // Ссылка на родительскую окружность (если есть)
-        this.children = []; // Массив вложенных окружностей
-        this.nestingLevel = parent ? parent.nestingLevel + 1 : 0; // Уровень вложенности
+        this.parent = parent;
+        this.children = []; 
+        this.nestingLevel = parent ? parent.nestingLevel + 1 : 0;
+        this.createdAt = millis(); // Время создания
     }
 
     update() {
         if (this.direction === 1) {
-            this.currentRadius += this.growthRate;
+            this.currentRadius += this.growthRate; // Увеличение радиуса
         } else {
-            this.currentRadius = max(this.currentRadius - this.growthRate, 0);
+            this.currentRadius = max(this.currentRadius - this.growthRate, 0); // Уменьшение радиуса
             if (this.currentRadius <= 0) {
-                this.direction = 1; // Начинаем новый цикл
+                this.direction = 1; // Переключение направления
             }
         }
 
-        // Ограничиваем вложенную окружность радиусом родительской
+        // Ограничение радиуса в зависимости от родительского круга
         if (this.parent) {
             let maxRadius = abs(this.parent.currentRadius - dist(this.centerX, this.centerY, this.parent.centerX, this.parent.centerY));
             if (this.currentRadius >= maxRadius) {
-                this.direction = -1;
+                this.direction = -1; // Отталкивание при достижении максимального радиуса
             }
         }
     }
@@ -63,17 +106,39 @@ class WaveCircle {
         ellipse(this.centerX, this.centerY, this.currentRadius * 2, this.currentRadius * 2);
     }
 
+    // Проверка столкновений с ближайшими соседями, найденными через kd-дерево
+    checkCollisionsWithKDTree(kdTree) {
+  if (!kdTree) return;
+
+  // Радиус поиска — радиус текущего круга плюс максимальный радиус возможного соседнего круга
+  const searchRadius = this.currentRadius + Math.max(...circles.map(c => c.currentRadius));
+
+  // Поиск ближайших соседей с помощью kd-дерева
+  const neighbors = kdTree.rangeSearch([this.centerX, this.centerY], searchRadius);
+
+  // Проверка столкновений только с найденными соседями
+  for (let neighbor of neighbors) {
+    if (neighbor && neighbor !== this) {
+      // Ищем объект circle в массиве circles
+      const otherCircle = circles.find(c => c.centerX === neighbor[0] && c.centerY === neighbor[1]);
+      if (otherCircle) {
+        this.checkCollision(otherCircle);
+      }
+    }
+  }
+}
+
+    // Проверка столкновения с конкретным кругом
     checkCollision(other) {
         let distance = dist(this.centerX, this.centerY, other.centerX, other.centerY);
 
-        // Проверка столкновения с родительской окружностью
+        // Проверка на случай, если другой круг является родителем
         if (this.parent === other) {
             let collisionDistance = abs(this.currentRadius - other.currentRadius);
             if (abs(distance - collisionDistance) < 1) {
                 this.direction *= -1;
                 other.direction *= -1;
 
-                // Добавляем озвучку столкновения
                 let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
                 let collisionX = this.centerX + this.currentRadius * cos(angle);
                 let collisionY = this.centerY + this.currentRadius * sin(angle);
@@ -85,19 +150,18 @@ class WaveCircle {
                     other.currentRadius,
                     frameCount
                 );
-                handleCollision(collisionPoint); // Вызываем функцию handleCollision явно
+                handleCollision(collisionPoint);
             }
             return;
         }
 
-        // Проверка столкновения с вложенной окружностью
+        // Проверка на случай, если этот круг является родителем другого
         if (other.parent === this) {
             let collisionDistance = abs(this.currentRadius - other.currentRadius);
             if (abs(distance - collisionDistance) < 1) {
                 this.direction *= -1;
                 other.direction *= -1;
 
-                // Добавляем озвучку столкновения
                 let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
                 let collisionX = this.centerX + this.currentRadius * cos(angle);
                 let collisionY = this.centerY + this.currentRadius * sin(angle);
@@ -109,12 +173,12 @@ class WaveCircle {
                     other.currentRadius,
                     frameCount
                 );
-                handleCollision(collisionPoint); // Вызываем функцию handleCollision явно
+                handleCollision(collisionPoint);
             }
             return;
         }
 
-        // Стандартное столкновение между двумя внешними окружностями
+        // Общая проверка столкновения двух кругов
         let sumRadii = this.currentRadius + other.currentRadius;
         if (distance <= sumRadii) {
             this.direction *= -1;
@@ -134,14 +198,24 @@ class WaveCircle {
             handleCollision(collisionPoint);
         }
     }
-} // Закрываем класс WaveCircle
+}
+
+let circles = [];
+let kdTree;
+
+function buildKDTree() {
+    const points = circles.map(circle => [circle.centerX, circle.centerY, circle]);
+    kdTree = new KDTree(points); // Перестраиваем kd-дерево на основе текущих кругов
+}
+
 
 class AudioPlayer {
     constructor() {
         this.context = null;
         this.samples = {};
         this.masterGainNode = null;
-        this.playingSources = []; // Добавлено для отслеживания играющих источников
+        this.playingSources = [];
+        this.MAX_PLAYING_SOURCES = 10;
         document.addEventListener("click", () => this.initAudioContext(), { once: true });
     }
 
@@ -174,29 +248,61 @@ class AudioPlayer {
     }
 
     playSample(sampleIndex, x, canvasWidth) {
-        if (!this.context || !this.samples[sampleIndex]) return;
+    // Проверяем, если уже воспроизводится слишком много источников - останавливаем
+    if (this.playingSources.length >= this.MAX_PLAYING_SOURCES) {
+        this.stopOldestSources();
+    }
 
-        const sample = this.samples[sampleIndex];
-        const source = this.context.createBufferSource();
-        source.buffer = sample;
+    // Проверяем, если сэмпл уже звучит, избегаем дублирования
+    if (this.playingSources.some(source => source.sampleIndex === sampleIndex)) {
+        return;
+    }
 
-        const panner = this.context.createStereoPanner();
-        const normalizedX = (x / canvasWidth) * 2 - 1;
-        panner.pan.setValueAtTime(normalizedX, this.context.currentTime);
+    if (!this.context || !this.samples[sampleIndex]) return;
 
-        const gainNode = this.context.createGain();
-        gainNode.gain.setValueAtTime(0.3, this.context.currentTime);
-        gainNode.gain.linearRampToValueAtTime(
-            0,
-            this.context.currentTime + sample.duration - 0.05
-        );
+    const sample = this.samples[sampleIndex];
+    const source = this.context.createBufferSource();
+    source.buffer = sample;
+    source.sampleIndex = sampleIndex; // Сохраняем индекс сэмпла в источнике для проверки
 
-        source.connect(gainNode);
-        gainNode.connect(panner);
-        panner.connect(this.masterGainNode);
-        source.start();
+    const panner = this.context.createStereoPanner();
+    const normalizedX = (x / canvasWidth) * 2 - 1;
+    panner.pan.setValueAtTime(normalizedX, this.context.currentTime);
 
-        this.playingSources.push(source); // Добавляем источник в массив играющих
+    const gainNode = this.context.createGain();
+
+    // Плавное включение и выключение звука для устранения щелчков
+    const attack = 0.02; // Время подъема громкости
+    const release = 0.1; // Время затухания
+    const currentTime = this.context.currentTime;
+
+    gainNode.gain.setValueAtTime(0, currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.3, currentTime + attack); // Плавный старт
+    gainNode.gain.linearRampToValueAtTime(
+        0,
+        currentTime + sample.duration - release
+    ); // Плавное затухание
+
+    source.connect(gainNode);
+    gainNode.connect(panner);
+    panner.connect(this.masterGainNode);
+    source.start();
+
+    // Удаление источника из списка после окончания воспроизведения
+    source.onended = () => {
+        this.playingSources = this.playingSources.filter(s => s !== source);
+    };
+
+    this.playingSources.push(source);
+}
+
+    stopOldestSources() {
+        while (this.playingSources.length > this.MAX_PLAYING_SOURCES / 2) {
+            const oldestSource = this.playingSources.shift();
+            if (oldestSource.context.state === 'running') {
+                oldestSource.stop();
+            }
+        }
     }
 
     stopAllSources() {
@@ -205,15 +311,58 @@ class AudioPlayer {
                 source.stop();
             }
         });
-        this.playingSources = []; // Очищаем массив
+        this.playingSources = [];
     }
 }
 
+// Метрики производительности
+let performanceMetrics = {
+    lastFrameTime: 0,
+    averageFrameTime: 0,
+    performanceThreshold: 50 // ms
+};
+
+function measurePerformance() {
+    const currentTime = millis();
+    const frameDuration = currentTime - performanceMetrics.lastFrameTime;
+    
+    performanceMetrics.averageFrameTime = 
+        0.9 * performanceMetrics.averageFrameTime + 
+        0.1 * frameDuration;
+    
+    performanceMetrics.lastFrameTime = currentTime;
+    
+    if (performanceMetrics.averageFrameTime > performanceMetrics.performanceThreshold) {
+        reduceSystemLoad();
+    }
+}
+
+// Функция снижения нагрузки
+function reduceSystemLoad() {
+    // Удаляем старые круги
+    if (circles.length > MAX_CIRCLES * 0.7) {
+        circles = circles.slice(-Math.floor(MAX_CIRCLES * 0.7));
+    }
+
+    // Уменьшаем скорость роста кругов
+    growthSpeed = Math.max(0.1, growthSpeed * 0.8);
+
+    // Уменьшаем громкость мастера при высокой нагрузке
+    if (audioPlayer.masterGainNode) {
+        audioPlayer.masterGainNode.gain.linearRampToValueAtTime(
+            Math.max(0.3, audioPlayer.masterGainNode.gain.value * 0.9),
+            audioPlayer.context.currentTime + 0.1
+        );
+    }
+
+    // Останавливаем лишние звуковые источники
+    audioPlayer.stopOldestSources();
+}
+
 const audioPlayer = new AudioPlayer();
-let circles = [];
-let growthSpeed = 1;
-let MAX_CIRCLES = 10; // Максимальное количество окружностей
-let MAX_NESTING_LEVEL = 3; // Максимальный уровень вложенности
+let growthSpeed = 0.6;
+let MAX_CIRCLES = 10;
+let MAX_NESTING_LEVEL = 3;
 let clearButton;
 
 function handleCollision(collisionPoint) {
@@ -231,66 +380,82 @@ function radiusToSampleIndex(radius, minRadius, maxRadius) {
 }
 
 function setup() {
-            createCanvas(800, 800);
-            background(220);
-            clearButton = createButton('Clear');
-            clearButton.position(width - 70, 10); // Позиция кнопки в отступе
-            clearButton.mousePressed(clearField);
-                        
-                   clearButton.style('width','60px'); //добавим ширину кнопки
-           clearButton.style('height','25px'); //добавим высоту кнопки  
-           this.buttonX = clearButton.elt.offsetLeft; //получим координаты кнопки
-           this.buttonY = clearButton.elt.offsetTop;
-           this.buttonWidth = clearButton.elt.offsetWidth;
-           this.buttonHeight = clearButton.elt.offsetHeight;
-        }
+    createCanvas(800, 800);
+    background(220);
+    clearButton = createButton('Clear');
+    clearButton.position(width - 70, 10);
+    clearButton.mousePressed(clearField);
+    
+    clearButton.style('width','60px');
+    clearButton.style('height','25px');
+    this.buttonX = clearButton.elt.offsetLeft;
+    this.buttonY = clearButton.elt.offsetTop;
+    this.buttonWidth = clearButton.elt.offsetWidth;
+    this.buttonHeight = clearButton.elt.offsetHeight;
+}
 
 function clearField() {
-    circles = []; // Очищаем массив окружностей
-    growthSpeed = 1; // Сбрасываем скорость роста
-    audioPlayer.stopAllSources(); // Останавливаем все текущие звуки
+    circles = [];
+    growthSpeed = 1;
+    audioPlayer.stopAllSources();
 }
 
 function draw() {
-    background(220);
+    measurePerformance();
 
+    // Построение kd-дерева заново
+    if (circles.length > 0) {
+        buildKDTree(); // Пересоздаём kd-дерево
+    }
+
+    // Проверка столкновений для каждой пары кругов
     for (let i = 0; i < circles.length; i++) {
-        let circle = circles[i];
-        circle.update();
-        circle.display();
-
         for (let j = i + 1; j < circles.length; j++) {
-            circle.checkCollision(circles[j]);
+            circles[i].checkCollision(circles[j]);
         }
     }
-}
 
+    // Отрисовка объектов
+    background(220);
+    for (let i = 0; i < circles.length; i++) {
+        circles[i].update();
+        circles[i].display();
+    }
+}
 
 function mousePressed() {
     // Проверка на наведение мыши на кнопку
     const isOverButton = mouseX >= this.buttonX && mouseX <= this.buttonX + this.buttonWidth &&
                          mouseY >= this.buttonY && mouseY <= this.buttonY + this.buttonHeight;
 
-    if (circles.length < MAX_CIRCLES && !isOverButton) { //  Изменение здесь!
+    // Динамическое ограничение числа кругов в зависимости от производительности
+    const dynamicMaxCircles = Math.max(
+        5, 
+        MAX_CIRCLES - Math.floor(performanceMetrics.averageFrameTime / 10)
+    );
+
+    if (circles.length < dynamicMaxCircles && !isOverButton) {
         let newCircle = new WaveCircle(mouseX, mouseY, growthSpeed);
         let parentCircle = null;
 
         // Находим родительский круг
         for (let i = circles.length - 1; i >= 0; i--) {
             let otherCircle = circles[i];
-            if (otherCircle.nestingLevel < MAX_NESTING_LEVEL && dist(mouseX, mouseY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
+            if (otherCircle.nestingLevel < MAX_NESTING_LEVEL && 
+                dist(mouseX, mouseY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
                 parentCircle = otherCircle;
                 break;
             }
         }
+        
         newCircle.parent = parentCircle;
         if (parentCircle) {
             parentCircle.children.push(newCircle);
         }
+        
         circles.push(newCircle);
     }
 }
-
     </script>
 </body>
 </html>
