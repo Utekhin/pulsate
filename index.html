@@ -230,7 +230,7 @@ class AudioPlayer {
 
     async loadSamples() {
         for (let i = 1; i <= 22; i++) {
-            const url = `samples/${String(i).padStart(2, "0")}.wav`;
+            const url = `samples/${String(i).padStart(2, "0")}.mp3`;
             this.samples[i] = await this.loadSample(url);
         }
         console.log("All samples loaded.");
