@@ -1,6 +1,5 @@
 # Wave Circle Sound Game
 
-Интерактивная визуальная игра с генерацией звука через столкновения окружностей.
+This is a very much simplified version of interactive musical game invented by Andre Michelle ( @andremichelle )
 
-## Как играть
-- Кликайте по экрану для создания окружностей
+Click on the screen to make circles. They sing when they collide.
