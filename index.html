@@ -285,7 +285,269 @@ function mousePressed() {
         }
         newCircle.parent = parentCircle;
         if (parentCircle) {
-            parentCircle.children.push(newCircle);
+            parentCircle.children.push(newCircle);<!DOCTYPE html>
+<html>
+<head>
+    <title>Pulsating Circles</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding-top: 40px;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- First, load the audio module -->
+    <script type="module">
+        import { audioPlayer } from './audio.js';
+        window.audioPlayer = audioPlayer;
+    </script>
+
+    <!-- Then, load the main application code -->
+    <script>
+        // Global variables
+        let circles = [];
+        let spatialGrid;
+        let growthSpeed = 1;
+        const MAX_CIRCLES = 10;
+        const MAX_NESTING_LEVEL = 3;
+        const CELL_SIZE = 100;
+        let clearButton;
+
+        class SpatialGrid {
+            constructor(width, height, cellSize) {
+                this.cellSize = cellSize;
+                this.cols = Math.ceil(width / cellSize);
+                this.rows = Math.ceil(height / cellSize);
+                this.grid = new Array(this.cols * this.rows).fill().map(() => []);
+            }
+
+            clear() {
+                for (let i = 0; i < this.grid.length; i++) {
+                    this.grid[i].length = 0;
+                }
+            }
+
+            getCell(x, y) {
+                const col = Math.floor(x / this.cellSize);
+                const row = Math.floor(y / this.cellSize);
+                if (col >= 0 && col < this.cols && row >= 0 && row < this.rows) {
+                    return this.grid[row * this.cols + col];
+                }
+                return null;
+            }
+
+            insert(circle) {
+                const radius = circle.currentRadius;
+                const left = Math.max(0, Math.floor((circle.centerX - radius) / this.cellSize));
+                const right = Math.min(this.cols - 1, Math.floor((circle.centerX + radius) / this.cellSize));
+                const top = Math.max(0, Math.floor((circle.centerY - radius) / this.cellSize));
+                const bottom = Math.min(this.rows - 1, Math.floor((circle.centerY + radius) / this.cellSize));
+
+                for (let row = top; row <= bottom; row++) {
+                    for (let col = left; col <= right; col++) {
+                        this.grid[row * this.cols + col].push(circle);
+                    }
+                }
+            }
+
+            getPotentialCollisions(circle) {
+                const radius = circle.currentRadius;
+                const left = Math.max(0, Math.floor((circle.centerX - radius) / this.cellSize));
+                const right = Math.min(this.cols - 1, Math.floor((circle.centerX + radius) / this.cellSize));
+                const top = Math.max(0, Math.floor((circle.centerY - radius) / this.cellSize));
+                const bottom = Math.min(this.rows - 1, Math.floor((circle.centerY + radius) / this.cellSize));
+
+                const nearbyCircles = new Set();
+                
+                for (let row = top; row <= bottom; row++) {
+                    for (let col = left; col <= right; col++) {
+                        const cell = this.grid[row * this.cols + col];
+                        cell.forEach(other => {
+                            if (other !== circle) {
+                                nearbyCircles.add(other);
+                            }
+                        });
+                    }
+                }
+
+                return Array.from(nearbyCircles);
+            }
+        }
+
+        class WaveCircle {
+            constructor(x, y, growthSpeed = 1, parent = null) {
+                this.centerX = x;
+                this.centerY = y;
+                this.currentRadius = 0;
+                this.growthRate = growthSpeed;
+                this.direction = 1;
+                this.color = color(random(255), random(255), random(255), 150);
+                this.parent = parent;
+                this.children = [];
+                this.nestingLevel = parent ? parent.nestingLevel + 1 : 0;
+                this.lastCollisionTime = 0;
+                this.collisionCooldown = 10;
+            }
+
+            update() {
+                const deltaTime = 1 / frameRate();
+                
+                if (this.direction === 1) {
+                    this.currentRadius += this.growthRate * deltaTime * 60;
+                } else {
+                    this.currentRadius = max(this.currentRadius - this.growthRate * deltaTime * 60, 0);
+                    if (this.currentRadius <= 0) {
+                        this.direction = 1;
+                    }
+                }
+
+                if (this.parent) {
+                    let maxRadius = abs(this.parent.currentRadius - dist(this.centerX, this.centerY, this.parent.centerX, this.parent.centerY));
+                    if (this.currentRadius >= maxRadius) {
+                        this.direction = -1;
+                    }
+                }
+            }
+
+            display() {
+                noFill();
+                stroke(this.color);
+                strokeWeight(2);
+                ellipse(this.centerX, this.centerY, this.currentRadius * 2, this.currentRadius * 2);
+            }
+
+            checkCollision(other) {
+                if (frameCount - this.lastCollisionTime < this.collisionCooldown) {
+                    return false;
+                }
+
+                const distance = dist(this.centerX, this.centerY, other.centerX, other.centerY);
+
+                if (this.parent === other || other.parent === this) {
+                    const collisionDistance = abs(this.currentRadius - other.currentRadius);
+                    if (abs(distance - collisionDistance) < 1) {
+                        this.handleCollisionResponse(other, distance);
+                        return true;
+                    }
+                    return false;
+                }
+
+                const sumRadii = this.currentRadius + other.currentRadius;
+                if (distance <= sumRadii && distance > 0) {
+                    this.handleCollisionResponse(other, distance);
+                    return true;
+                }
+                return false;
+            }
+
+            handleCollisionResponse(other, distance) {
+                this.direction *= -1;
+                other.direction *= -1;
+                this.lastCollisionTime = frameCount;
+                other.lastCollisionTime = frameCount;
+
+                const angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
+                const collisionX = this.centerX + this.currentRadius * cos(angle);
+                const collisionY = this.centerY + this.currentRadius * sin(angle);
+
+                if (window.audioPlayer && window.audioPlayer.isReady()) {
+                    const sampleIndex1 = this.radiusToSampleIndex(this.currentRadius);
+                    const sampleIndex2 = this.radiusToSampleIndex(other.currentRadius);
+                    
+                    window.audioPlayer.playSample(sampleIndex1, collisionX, width);
+                    window.audioPlayer.playSample(sampleIndex2, collisionX, width);
+                }
+            }
+
+            radiusToSampleIndex(radius) {
+       			const minRadius = 0;
+        		const maxRadius = 300;
+       			const normalized = (radius - minRadius) / (maxRadius - minRadius);
+        		return Math.round(Math.max(0, Math.min(1, normalized)) * 43) + 1;
+   		    }	
+		}
+
+        function setup() {
+            createCanvas(800, 800);
+            spatialGrid = new SpatialGrid(width, height, CELL_SIZE);
+            
+            clearButton = createButton('Clear');
+            clearButton.position(width - 70, 10);
+            clearButton.mousePressed(clearField);
+            clearButton.style('width', '60px');
+            clearButton.style('height', '25px');
+            
+            // Store button dimensions
+            window.buttonX = clearButton.elt.offsetLeft;
+            window.buttonY = clearButton.elt.offsetTop;
+            window.buttonWidth = clearButton.elt.offsetWidth;
+            window.buttonHeight = clearButton.elt.offsetHeight;
+
+            frameRate(60);
+        }
+
+        function clearField() {
+            circles = [];
+            if (window.audioPlayer) {
+                window.audioPlayer.stopAllSources();
+            }
+        }
+
+        function draw() {
+            background(220);
+            
+            spatialGrid.clear();
+            circles.forEach(circle => spatialGrid.insert(circle));
+
+            circles.forEach(circle => {
+                circle.update();
+                circle.display();
+            });
+
+            circles.forEach(circle => {
+                const potentialCollisions = spatialGrid.getPotentialCollisions(circle);
+                potentialCollisions.forEach(other => {
+                    circle.checkCollision(other);
+                });
+            });
+        }
+
+        function mousePressed() {
+            const isOverButton = mouseX >= window.buttonX && mouseX <= window.buttonX + window.buttonWidth &&
+                               mouseY >= window.buttonY && mouseY <= window.buttonY + window.buttonHeight;
+
+            if (circles.length < MAX_CIRCLES && !isOverButton) {
+                let parentCircle = null;
+                
+                for (let i = circles.length - 1; i >= 0; i--) {
+                    let otherCircle = circles[i];
+                    if (otherCircle.nestingLevel < MAX_NESTING_LEVEL && 
+                        dist(mouseX, mouseY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
+                        parentCircle = otherCircle;
+                        break;
+                    }
+                }
+
+                const newCircle = new WaveCircle(mouseX, mouseY, growthSpeed, parentCircle);
+                if (parentCircle) {
+                    parentCircle.children.push(newCircle);
+                }
+                circles.push(newCircle);
+            }
+        }
+
+        // Make functions globally available
+        window.setup = setup;
+        window.draw = draw;
+        window.mousePressed = mousePressed;
+    </script>
+</body>
+</html>
         }
         circles.push(newCircle);
     }
