@@ -3,9 +3,12 @@ class AudioPlayer {
         this.context = null;
         this.samples = {};
         this.masterGainNode = null;
+        this.compressor = null; // Added compressor
         this.playingSources = [];
         this.isLoaded = false;
         this.loadingPromise = null;
+        this.maxVoices = 16; // Maximum simultaneous voices
+        this.activeSources = new Map(); // Track active sources with more detail
         
         // Initialize audio context on user interaction
         document.addEventListener("click", () => this.initAudioContext(), { once: true });
@@ -15,8 +18,21 @@ class AudioPlayer {
         if (this.context) return;
         
         this.context = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Create compressor node
+        this.compressor = this.context.createDynamicsCompressor();
+        this.compressor.threshold.setValueAtTime(-24, this.context.currentTime);
+        this.compressor.knee.setValueAtTime(30, this.context.currentTime);
+        this.compressor.ratio.setValueAtTime(12, this.context.currentTime);
+        this.compressor.attack.setValueAtTime(0.003, this.context.currentTime);
+        this.compressor.release.setValueAtTime(0.25, this.context.currentTime);
+
+        // Create master gain node
         this.masterGainNode = this.context.createGain();
         this.masterGainNode.gain.value = 0.8;
+
+        // Connect nodes: source -> compressor -> masterGain -> destination
+        this.compressor.connect(this.masterGainNode);
         this.masterGainNode.connect(this.context.destination);
         
         // Start loading samples if not already loading
@@ -66,8 +82,14 @@ class AudioPlayer {
             return;
         }
 
+        // Check if we've reached the maximum number of voices
+        if (this.activeSources.size >= this.maxVoices) {
+            this.removeOldestSource();
+        }
+
         const sample = this.samples[sampleIndex];
-        
+        const sourceId = Date.now() + Math.random(); // Unique ID for this source
+
         // Create and configure audio nodes
         const source = this.context.createBufferSource();
         source.buffer = sample;
@@ -77,7 +99,10 @@ class AudioPlayer {
         panner.pan.setValueAtTime(normalizedX, this.context.currentTime);
 
         const gainNode = this.context.createGain();
-        gainNode.gain.setValueAtTime(0.3, this.context.currentTime);
+        
+        // Adjust individual gain based on number of active sources
+        const baseGain = 0.3 / Math.max(1, Math.sqrt(this.activeSources.size));
+        gainNode.gain.setValueAtTime(baseGain, this.context.currentTime);
         gainNode.gain.linearRampToValueAtTime(
             0,
             this.context.currentTime + sample.duration - 0.05
@@ -86,40 +111,74 @@ class AudioPlayer {
         // Connect audio nodes
         source.connect(gainNode);
         gainNode.connect(panner);
-        panner.connect(this.masterGainNode);
+        panner.connect(this.compressor); // Connect to compressor instead of master gain
 
         // Start playback and track the source
         source.start();
-        this.playingSources.push({
+        
+        const sourceInfo = {
             source,
-            endTime: this.context.currentTime + sample.duration
-        });
+            gainNode,
+            panner,
+            endTime: this.context.currentTime + sample.duration,
+            startTime: this.context.currentTime
+        };
+
+        this.activeSources.set(sourceId, sourceInfo);
+        source.onended = () => this.removeSource(sourceId);
 
         // Clean up finished sources
         this.cleanupSources();
     }
 
+    removeOldestSource() {
+        if (this.activeSources.size === 0) return;
+        
+        // Find the oldest source
+        let oldestId = null;
+        let oldestTime = Infinity;
+        
+        for (const [id, sourceInfo] of this.activeSources) {
+            if (sourceInfo.startTime < oldestTime) {
+                oldestTime = sourceInfo.startTime;
+                oldestId = id;
+            }
+        }
+
+        if (oldestId) {
+            this.removeSource(oldestId);
+        }
+    }
+
+    removeSource(sourceId) {
+        const sourceInfo = this.activeSources.get(sourceId);
+        if (sourceInfo) {
+            try {
+                sourceInfo.source.stop();
+                sourceInfo.source.disconnect();
+                sourceInfo.gainNode.disconnect();
+                sourceInfo.panner.disconnect();
+            } catch (e) {
+                console.warn("Error removing source:", e);
+            }
+            this.activeSources.delete(sourceId);
+        }
+    }
+
     cleanupSources() {
         const currentTime = this.context.currentTime;
-        this.playingSources = this.playingSources.filter(({source, endTime}) => {
-            if (currentTime >= endTime) {
-                source.disconnect();
-                return false;
+        for (const [id, sourceInfo] of this.activeSources) {
+            if (currentTime >= sourceInfo.endTime) {
+                this.removeSource(id);
             }
-            return true;
-        });
+        }
     }
 
     stopAllSources() {
-        this.playingSources.forEach(({source}) => {
-            try {
-                source.stop();
-                source.disconnect();
-            } catch (e) {
-                console.warn("Error stopping source:", e);
-            }
-        });
-        this.playingSources = [];
+        for (const id of this.activeSources.keys()) {
+            this.removeSource(id);
+        }
+        this.activeSources.clear();
     }
 
     setMasterVolume(value) {

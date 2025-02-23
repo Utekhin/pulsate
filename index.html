@@ -1,296 +1,11 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-    <script src="session.js"></script>  
-    <style>
-        body {
-            margin: 0;
-            padding-top: 40px; /* Отступ сверху */
-        }
-        canvas {
-            display: block;
-        }
-    </style>
-</head>
-<body>
-    <script>
-class CollisionPoint {
-    constructor(x, y, radius1, radius2, timestamp) {
-        this.x = x;
-        this.y = y;
-        this.radius1 = radius1;
-        this.radius2 = radius2;
-        this.timestamp = timestamp;
-    }
-}
-
-class WaveCircle {
-    constructor(x, y, growthSpeed = 1, parent = null) {
-        this.centerX = x;
-        this.centerY = y;
-        this.currentRadius = 0;
-        this.growthRate = growthSpeed;
-        this.direction = 1; // 1 - расширение, -1 - сжатие
-        this.color = color(random(255), random(255), random(255), 150);
-        this.parent = parent; // Ссылка на родительскую окружность (если есть)
-        this.children = []; // Массив вложенных окружностей
-        this.nestingLevel = parent ? parent.nestingLevel + 1 : 0; // Уровень вложенности
-    }
-
-    update() {
-        if (this.direction === 1) {
-            this.currentRadius += this.growthRate;
-        } else {
-            this.currentRadius = max(this.currentRadius - this.growthRate, 0);
-            if (this.currentRadius <= 0) {
-                this.direction = 1; // Начинаем новый цикл
-            }
-        }
-
-        // Ограничиваем вложенную окружность радиусом родительской
-        if (this.parent) {
-            let maxRadius = abs(this.parent.currentRadius - dist(this.centerX, this.centerY, this.parent.centerX, this.parent.centerY));
-            if (this.currentRadius >= maxRadius) {
-                this.direction = -1;
-            }
-        }
-    }
-
-    display() {
-        noFill();
-        stroke(this.color);
-        strokeWeight(2);
-        ellipse(this.centerX, this.centerY, this.currentRadius * 2, this.currentRadius * 2);
-    }
-
-    checkCollision(other) {
-        let distance = dist(this.centerX, this.centerY, other.centerX, other.centerY);
-
-        // Проверка столкновения с родительской окружностью
-        if (this.parent === other) {
-            let collisionDistance = abs(this.currentRadius - other.currentRadius);
-            if (abs(distance - collisionDistance) < 1) {
-                this.direction *= -1;
-                other.direction *= -1;
-
-                // Добавляем озвучку столкновения
-                let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
-                let collisionX = this.centerX + this.currentRadius * cos(angle);
-                let collisionY = this.centerY + this.currentRadius * sin(angle);
-
-                const collisionPoint = new CollisionPoint(
-                    collisionX,
-                    collisionY,
-                    this.currentRadius,
-                    other.currentRadius,
-                    frameCount
-                );
-                handleCollision(collisionPoint); // Вызываем функцию handleCollision явно
-            }
-            return;
-        }
-
-        // Проверка столкновения с вложенной окружностью
-        if (other.parent === this) {
-            let collisionDistance = abs(this.currentRadius - other.currentRadius);
-            if (abs(distance - collisionDistance) < 1) {
-                this.direction *= -1;
-                other.direction *= -1;
-
-                // Добавляем озвучку столкновения
-                let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
-                let collisionX = this.centerX + this.currentRadius * cos(angle);
-                let collisionY = this.centerY + this.currentRadius * sin(angle);
-
-                const collisionPoint = new CollisionPoint(
-                    collisionX,
-                    collisionY,
-                    this.currentRadius,
-                    other.currentRadius,
-                    frameCount
-                );
-                handleCollision(collisionPoint); // Вызываем функцию handleCollision явно
-            }
-            return;
-        }
-
-        // Стандартное столкновение между двумя внешними окружностями
-        let sumRadii = this.currentRadius + other.currentRadius;
-        if (distance <= sumRadii) {
-            this.direction *= -1;
-            other.direction *= -1;
-
-            let angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
-            let collisionX = this.centerX + this.currentRadius * cos(angle);
-            let collisionY = this.centerY + this.currentRadius * sin(angle);
-
-            const collisionPoint = new CollisionPoint(
-                collisionX,
-                collisionY,
-                this.currentRadius,
-                other.currentRadius,
-                frameCount
-            );
-            handleCollision(collisionPoint);
-        }
-    }
-} // Закрываем класс WaveCircle
-
-class AudioPlayer {
-    constructor() {
-        this.context = null;
-        this.samples = {};
-        this.masterGainNode = null;
-        this.playingSources = []; // Добавлено для отслеживания играющих источников
-        document.addEventListener("click", () => this.initAudioContext(), { once: true });
-    }
-
-    initAudioContext() {
-        this.context = new (window.AudioContext || window.webkitAudioContext)();
-        this.masterGainNode = this.context.createGain();
-        this.masterGainNode.gain.value = 0.8;
-        this.masterGainNode.connect(this.context.destination);
-        this.loadSamples();
-    }
-
-    async loadSamples() {
-        for (let i = 1; i <= 44; i++) {
-            const url = `samples/${String(i).padStart(2, "0")}.wav`;
-            this.samples[i] = await this.loadSample(url);
-        }
-        console.log("All samples loaded.");
-    }
-
-    async loadSample(url) {
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`Failed to load sample: ${url}`);
-            const arrayBuffer = await response.arrayBuffer();
-            return await this.context.decodeAudioData(arrayBuffer);
-        } catch (error) {
-            console.error(error);
-            return null;
-        }
-    }
-
-    playSample(sampleIndex, x, canvasWidth) {
-        if (!this.context || !this.samples[sampleIndex]) return;
-
-        const sample = this.samples[sampleIndex];
-        const source = this.context.createBufferSource();
-        source.buffer = sample;
-
-        const panner = this.context.createStereoPanner();
-        const normalizedX = (x / canvasWidth) * 2 - 1;
-        panner.pan.setValueAtTime(normalizedX, this.context.currentTime);
-
-        const gainNode = this.context.createGain();
-        gainNode.gain.setValueAtTime(0.3, this.context.currentTime);
-        gainNode.gain.linearRampToValueAtTime(
-            0,
-            this.context.currentTime + sample.duration - 0.05
-        );
-
-        source.connect(gainNode);
-        gainNode.connect(panner);
-        panner.connect(this.masterGainNode);
-        source.start();
-
-        this.playingSources.push(source); // Добавляем источник в массив играющих
-    }
-
-    stopAllSources() {
-        this.playingSources.forEach(source => {
-            if (source.context.state === 'running') {
-                source.stop();
-            }
-        });
-        this.playingSources = []; // Очищаем массив
-    }
-}
-
-const audioPlayer = new AudioPlayer();
-let circles = [];
-let growthSpeed = 1;
-let MAX_CIRCLES = 10; // Максимальное количество окружностей
-let MAX_NESTING_LEVEL = 3; // Максимальный уровень вложенности
-let clearButton;
-
-function handleCollision(collisionPoint) {
-    const { x, radius1, radius2 } = collisionPoint;
-    const sampleIndex1 = radiusToSampleIndex(radius1, 0, 300);
-    const sampleIndex2 = radiusToSampleIndex(radius2, 0, 300);
-
-    audioPlayer.playSample(sampleIndex1, x, width);
-    audioPlayer.playSample(sampleIndex2, x, width);
-}
-
-function radiusToSampleIndex(radius, minRadius, maxRadius) {
-    const normalized = 1 - (radius - minRadius) / (maxRadius - minRadius);
-    return Math.round(Math.max(0, Math.min(1, normalized)) * 21) + 1;
-}
-
-function setup() {
-            createCanvas(800, 800);
-            background(220);
-            clearButton = createButton('Clear');
-            clearButton.position(width - 70, 10); // Позиция кнопки в отступе
-            clearButton.mousePressed(clearField);
-                        
-                   clearButton.style('width','60px'); //добавим ширину кнопки
-           clearButton.style('height','25px'); //добавим высоту кнопки  
-           this.buttonX = clearButton.elt.offsetLeft; //получим координаты кнопки
-           this.buttonY = clearButton.elt.offsetTop;
-           this.buttonWidth = clearButton.elt.offsetWidth;
-           this.buttonHeight = clearButton.elt.offsetHeight;
-        }
-
-function clearField() {
-    circles = []; // Очищаем массив окружностей
-    growthSpeed = 1; // Сбрасываем скорость роста
-    audioPlayer.stopAllSources(); // Останавливаем все текущие звуки
-}
-
-function draw() {
-    background(220);
-
-    for (let i = 0; i < circles.length; i++) {
-        let circle = circles[i];
-        circle.update();
-        circle.display();
-
-        for (let j = i + 1; j < circles.length; j++) {
-            circle.checkCollision(circles[j]);
-        }
-    }
-}
-
-
-function mousePressed() {
-    // Проверка на наведение мыши на кнопку
-    const isOverButton = mouseX >= this.buttonX && mouseX <= this.buttonX + this.buttonWidth &&
-                         mouseY >= this.buttonY && mouseY <= this.buttonY + this.buttonHeight;
-
-    if (circles.length < MAX_CIRCLES && !isOverButton) { //  Изменение здесь!
-        let newCircle = new WaveCircle(mouseX, mouseY, growthSpeed);
-        let parentCircle = null;
-
-        // Находим родительский круг
-        for (let i = circles.length - 1; i >= 0; i--) {
-            let otherCircle = circles[i];
-            if (otherCircle.nestingLevel < MAX_NESTING_LEVEL && dist(mouseX, mouseY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
-                parentCircle = otherCircle;
-                break;
-            }
-        }
-        newCircle.parent = parentCircle;
-        if (parentCircle) {
-            parentCircle.children.push(newCircle);<!DOCTYPE html>
-<html>
-<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pulsating Circles</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="session.js"></script>
     <style>
         body {
             margin: 0;
@@ -298,6 +13,20 @@ function mousePressed() {
         }
         canvas {
             display: block;
+        }
+        .controls {
+            position: fixed;
+            top: 40px; /* Adjust to be below the canvas */
+            left: calc(50% + 410px); /* Position to the right of canvas */
+            display: flex;
+            flex-direction: column; /* Stack items vertically */
+            gap: 10px;
+            align-items: flex-start;  /* Align items to the start (left) */
+            z-index: 1000;
+        }
+        select, button {
+            padding: 5px;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -308,16 +37,60 @@ function mousePressed() {
         window.audioPlayer = audioPlayer;
     </script>
 
-    <!-- Then, load the main application code -->
     <script>
-        // Global variables
         let circles = [];
         let spatialGrid;
         let growthSpeed = 1;
         const MAX_CIRCLES = 10;
         const MAX_NESTING_LEVEL = 3;
         const CELL_SIZE = 100;
-        let clearButton;
+        let clearButton, modeSelect, applyButton;
+        let currentMode = 'chromatic';
+
+        const MODES = {
+            chromatic: Array.from({length: 44}, (_, i) => i + 1),
+            ionian: [1, 3, 5, 6, 8, 10, 12, 13, 15, 17, 18, 20, 22, 24, 25, 27, 29, 30, 32, 34, 36, 37, 39, 41, 42, 44], // C major scale
+            dorian: [1, 3, 4, 6, 8, 10, 11, 13, 15, 16, 18, 20, 22, 23, 25, 27, 28, 30, 32, 34, 35, 37, 39, 41, 42], // D dorian
+            phrygian: [1, 2, 4, 6, 8, 9, 11, 13, 14, 16, 18, 20, 21, 23, 25, 26, 28, 30, 32, 33, 35, 37, 38, 40, 42], // E phrygian
+            lydian: [1, 3, 5, 7, 8, 10, 12, 13, 15, 17, 19, 20, 22, 24, 25, 27, 29, 31, 32, 34, 36, 37, 39, 41, 43], // F lydian
+            mixolydian: [1, 3, 5, 6, 8, 10, 11, 13, 15, 17, 18, 20, 22, 23, 25, 27, 29, 30, 32, 34, 35, 37, 39, 41, 42], // G mixolydian
+            aeolian: [1, 3, 4, 6, 8, 9, 11, 13, 15, 16, 18, 20, 21, 23, 25, 27, 28, 30, 32, 33, 35, 37, 39, 40, 42], // A minor/aeolian
+            locrian: [1, 2, 4, 6, 7, 9, 11, 13, 14, 16, 18, 19, 21, 23, 25, 26, 28, 30, 31, 33, 35, 37, 38, 40, 42], // B locrian
+            pentatonic: [1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25, 27, 29, 32, 34, 37, 39, 41, 44] // C pentatonic
+        };
+
+        function setup() {
+            let cnv = createCanvas(800, 800);
+            cnv.position(0, 40);
+            spatialGrid = new SpatialGrid(width, height, CELL_SIZE);
+
+            // Create a controls container and attach it to the body
+            let controlsDiv = createDiv();
+            controlsDiv.class('controls');
+            controlsDiv.parent(document.body); // Attach to the document
+
+            // Mode selection dropdown
+            modeSelect = createSelect();
+            modeSelect.parent(controlsDiv);
+            Object.keys(MODES).forEach(mode => modeSelect.option(mode));
+            modeSelect.value(currentMode);
+
+            // Apply button
+            applyButton = createButton('Apply Mode');
+            applyButton.parent(controlsDiv);
+            applyButton.mousePressed(applyMode);
+
+            // Clear button
+            clearButton = createButton('Clear');
+            clearButton.parent(controlsDiv);
+            clearButton.mousePressed(clearField);
+        }
+
+        function applyMode() {
+            currentMode = modeSelect.value();
+            clearField();
+        }
+
 
         class SpatialGrid {
             constructor(width, height, cellSize) {
@@ -364,7 +137,7 @@ function mousePressed() {
                 const bottom = Math.min(this.rows - 1, Math.floor((circle.centerY + radius) / this.cellSize));
 
                 const nearbyCircles = new Set();
-                
+
                 for (let row = top; row <= bottom; row++) {
                     for (let col = left; col <= right; col++) {
                         const cell = this.grid[row * this.cols + col];
@@ -387,7 +160,8 @@ function mousePressed() {
                 this.currentRadius = 0;
                 this.growthRate = growthSpeed;
                 this.direction = 1;
-                this.color = color(random(255), random(255), random(255), 150);
+                //this.color = color(random(255), random(255), random(255), 150);
+                this.color = color(0, 0, 139, 150);
                 this.parent = parent;
                 this.children = [];
                 this.nestingLevel = parent ? parent.nestingLevel + 1 : 0;
@@ -397,7 +171,7 @@ function mousePressed() {
 
             update() {
                 const deltaTime = 1 / frameRate();
-                
+
                 if (this.direction === 1) {
                     this.currentRadius += this.growthRate * deltaTime * 60;
                 } else {
@@ -459,38 +233,27 @@ function mousePressed() {
                 if (window.audioPlayer && window.audioPlayer.isReady()) {
                     const sampleIndex1 = this.radiusToSampleIndex(this.currentRadius);
                     const sampleIndex2 = this.radiusToSampleIndex(other.currentRadius);
-                    
+
                     window.audioPlayer.playSample(sampleIndex1, collisionX, width);
                     window.audioPlayer.playSample(sampleIndex2, collisionX, width);
                 }
             }
 
             radiusToSampleIndex(radius) {
-       			const minRadius = 0;
-        		const maxRadius = 300;
-       			const normalized = (radius - minRadius) / (maxRadius - minRadius);
-        		return Math.round(Math.max(0, Math.min(1, normalized)) * 43) + 1;
-   		    }	
-		}
+                const minRadius = 0;
+                const maxRadius = 300;
+                const normalized = (radius - minRadius) / (maxRadius - minRadius);
 
-        function setup() {
-            createCanvas(800, 800);
-            spatialGrid = new SpatialGrid(width, height, CELL_SIZE);
-            
-            clearButton = createButton('Clear');
-            clearButton.position(width - 70, 10);
-            clearButton.mousePressed(clearField);
-            clearButton.style('width', '60px');
-            clearButton.style('height', '25px');
-            
-            // Store button dimensions
-            window.buttonX = clearButton.elt.offsetLeft;
-            window.buttonY = clearButton.elt.offsetTop;
-            window.buttonWidth = clearButton.elt.offsetWidth;
-            window.buttonHeight = clearButton.elt.offsetHeight;
+                // Get available indices for current mode
+                const modeIndices = MODES[currentMode];
 
-            frameRate(60);
+                // Map the normalized radius to available indices
+                const index = Math.floor(normalized * (modeIndices.length - 1));
+                return modeIndices[Math.max(0, Math.min(index, modeIndices.length - 1))];
+            }
         }
+
+
 
         function clearField() {
             circles = [];
@@ -501,7 +264,7 @@ function mousePressed() {
 
         function draw() {
             background(220);
-            
+
             spatialGrid.clear();
             circles.forEach(circle => spatialGrid.insert(circle));
 
@@ -519,15 +282,32 @@ function mousePressed() {
         }
 
         function mousePressed() {
-            const isOverButton = mouseX >= window.buttonX && mouseX <= window.buttonX + window.buttonWidth &&
-                               mouseY >= window.buttonY && mouseY <= window.buttonY + window.buttonHeight;
+             // Check if the mouse is over the button
+             let isOverButton = false;
+            if (clearButton && clearButton.elt) {
+                const buttonRect = clearButton.elt.getBoundingClientRect();
+                isOverButton = mouseX >= buttonRect.left && mouseX <= buttonRect.right &&
+                               mouseY >= buttonRect.top && mouseY <= buttonRect.bottom;
+            }
+
+            if (applyButton && applyButton.elt) {
+              const buttonRect = applyButton.elt.getBoundingClientRect();
+              isOverButton = isOverButton || (mouseX >= buttonRect.left && mouseX <= buttonRect.right &&
+                             mouseY >= buttonRect.top && mouseY <= buttonRect.bottom);
+            }
+
+            if (modeSelect && modeSelect.elt) {
+                const buttonRect = modeSelect.elt.getBoundingClientRect();
+                isOverButton = isOverButton || (mouseX >= buttonRect.left && mouseX <= buttonRect.right &&
+                                mouseY >= buttonRect.top && mouseY <= buttonRect.bottom);
+            }
 
             if (circles.length < MAX_CIRCLES && !isOverButton) {
                 let parentCircle = null;
-                
+
                 for (let i = circles.length - 1; i >= 0; i--) {
                     let otherCircle = circles[i];
-                    if (otherCircle.nestingLevel < MAX_NESTING_LEVEL && 
+                    if (otherCircle.nestingLevel < MAX_NESTING_LEVEL &&
                         dist(mouseX, mouseY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
                         parentCircle = otherCircle;
                         break;
@@ -549,4 +329,3 @@ function mousePressed() {
     </script>
 </body>
 </html>
-  
