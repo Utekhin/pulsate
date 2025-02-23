@@ -155,7 +155,7 @@ class AudioPlayer {
     }
 
     async loadSamples() {
-        for (let i = 1; i <= 22; i++) {
+        for (let i = 1; i <= 44; i++) {
             const url = `samples/${String(i).padStart(2, "0")}.wav`;
             this.samples[i] = await this.loadSample(url);
         }
