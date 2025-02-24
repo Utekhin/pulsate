@@ -194,7 +194,7 @@
             clearField();
         }
 
-        class SpatialGrid {
+       class SpatialGrid {
             constructor(width, height, cellSize) {
                 this.cellSize = cellSize;
                 this.cols = Math.ceil(width / cellSize);
@@ -227,6 +227,23 @@
                 for (let row = top; row <= bottom; row++) {
                     for (let col = left; col <= right; col++) {
                         this.grid[row * this.cols + col].push(circle);
+                    }
+                }
+            }
+
+            remove(circle) {
+                const radius = circle.currentRadius;
+                const left = Math.max(0, Math.floor((circle.centerX - radius) / this.cellSize));
+                const right = Math.min(this.cols - 1, Math.floor((circle.centerX + radius) / this.cellSize));
+                const top = Math.max(0, Math.floor((circle.centerY - radius) / this.cellSize));
+                const bottom = Math.min(this.rows - 1, Math.floor((circle.centerY + radius) / this.cellSize));
+
+                for (let row = top; row <= bottom; row++) {
+                    for (let col = left; col <= right; col++) {
+                        const index = this.grid[row * this.cols + col].indexOf(circle);
+                        if (index > -1) {
+                            this.grid[row * this.cols + col].splice(index, 1);
+                        }
                     }
                 }
             }
@@ -277,10 +294,11 @@
 
             update() {
                 const deltaTime = 1 / frameRate();
-                const numSubSteps = 3; // Example: 3 sub-steps
+                const numSubSteps = 3; // You can adjust this number
                 const subDeltaTime = deltaTime / numSubSteps;
 
                 for (let i = 0; i < numSubSteps; i++) {
+                    // Update radius in smaller steps
                     if (this.direction === 1) {
                         this.currentRadius += this.growthRate * subDeltaTime * 60 * this.pulsationRate;
                     } else {
@@ -297,10 +315,14 @@
                         }
                     }
 
-                    // Check for collisions each sub-step
+                    // Re-insert into the spatial grid after potential radius change
+                    spatialGrid.remove(this);
+                    spatialGrid.insert(this);
+
+                    // Check for collisions within this sub-step
                     const potentialCollisions = spatialGrid.getPotentialCollisions(this);
                     potentialCollisions.forEach(other => {
-                        this.checkCollision(other); // Check collisions inside the substeps.
+                        this.checkCollision(other); // Collision detection and response
                     });
                 }
             }
@@ -339,30 +361,33 @@
             }
 
             handleCollisionResponse(other, distance, overlap = 0) {
-    this.direction *= -1;
-    other.direction *= -1;
-    this.lastCollisionTime = frameCount;
-    other.lastCollisionTime = frameCount;
+                this.direction *= -1;
+                other.direction *= -1;
+                this.lastCollisionTime = frameCount;
+                other.lastCollisionTime = frameCount;
 
-    const angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
+                const angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX); // Define angle here
 
-    const pushOutAmount = overlap / 2;  // If overlap is undefined, it defaults to 0
+                if (overlap > 0) {
+                    const pushOutAmount = overlap / 2;
 
-    this.centerX -= pushOutAmount * cos(angle);
-    this.centerY -= pushOutAmount * sin(angle);
-    other.centerX += pushOutAmount * cos(angle);
-    other.centerY += pushOutAmount * sin(angle);
+                    // Push the circles apart
+                    this.centerX -= pushOutAmount * cos(angle);
+                    this.centerY -= pushOutAmount * sin(angle);
+                    other.centerX += pushOutAmount * cos(angle);
+                    other.centerY += pushOutAmount * sin(angle);
+                }
 
-    const collisionX = this.centerX + this.currentRadius * cos(angle);
+                const collisionX = this.centerX + this.currentRadius * cos(angle);
 
-    if (window.audioPlayer && window.audioPlayer.isReady()) {
-        const sampleIndex1 = this.radiusToSampleIndex(this.currentRadius);
-        const sampleIndex2 = this.radiusToSampleIndex(other.currentRadius);
+                if (window.audioPlayer && window.audioPlayer.isReady()) {
+                    const sampleIndex1 = this.radiusToSampleIndex(this.currentRadius);
+                    const sampleIndex2 = this.radiusToSampleIndex(other.currentRadius);
 
-        window.audioPlayer.playSample(sampleIndex1, collisionX, width);
-        window.audioPlayer.playSample(sampleIndex2, collisionX, width);
-    }
-}
+                    window.audioPlayer.playSample(sampleIndex1, collisionX, width);
+                    window.audioPlayer.playSample(sampleIndex2, collisionX, width);
+                }
+            }
 
             radiusToSampleIndex(radius) {
                 const minRadius = 0;
@@ -377,20 +402,16 @@
         function draw() {
             background(220);
 
-            spatialGrid.clear();
+            spatialGrid.clear(); // Clear at the beginning of each frame
             circles.forEach(circle => spatialGrid.insert(circle));
 
             circles.forEach(circle => {
-                circle.update();
+                circle.update(); // Update now handles sub-stepping and collision checks
                 circle.display();
             });
 
-            circles.forEach(circle => {
-                const potentialCollisions = spatialGrid.getPotentialCollisions(circle);
-                potentialCollisions.forEach(other => {
-                    circle.checkCollision(other);
-                });
-            });
+            // No need for a separate collision check loop here anymore,
+            // as it's handled within the sub-steps of the update method.
         }
 
         // Make functions globally available (though typically not needed in p5.js sketches)
