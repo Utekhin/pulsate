@@ -6,7 +6,6 @@
     <title>Pulsating Circles</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
     <!-- session.js is now a module -->
-    <script type="module" src="session.js"></script>
     <style>
         body {
             margin: 0;
@@ -18,7 +17,7 @@
         }
         .controls {
             position: fixed;
-            top: 40px;        /*Consistent with canvas positioning */
+            top: 40px;        /* Consistent with canvas positioning */
             left: calc(50% + 410px); /* Centers controls to the right of canvas */
             display: flex;
             flex-direction: column;
@@ -78,72 +77,70 @@
             if (window.audioPlayer) {
                 window.audioPlayer.stopAllSources();
             }
-              if (window.sessionManager) {
-                window.sessionManager.updateSessionStats(circles);
-             }
-        }
-        
-        //Function to use when mouse is pressed
-function mousePressed() {
-    // Check if click is on any control element
-    let isOverControl = false;
-    let dragStartX = mouseX;  // Store the initial mouse X position
-    let dragStartY = mouseY;  // Store the initial mouse Y position
-
-    if (clearButton && clearButton.elt) {
-        const buttonRect = clearButton.elt.getBoundingClientRect();
-        isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
-                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
-    }
-
-    if (applyButton && applyButton.elt) {
-        const buttonRect = applyButton.elt.getBoundingClientRect();
-        isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
-                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
-    }
-
-    if (modeSelect && modeSelect.elt) {
-        const buttonRect = modeSelect.elt.getBoundingClientRect();
-        isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
-                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
-    }
-
-    if (rateSlider && rateSlider.elt) {
-        const sliderRect = rateSlider.elt.getBoundingClientRect();
-        isOverControl = isOverControl || (dragStartX >= sliderRect.left && dragStartX <= sliderRect.right &&
-                       dragStartY >= sliderRect.top && dragStartY <= sliderRect.bottom);
-    }
-
-    // Check if the click started within the canvas bounds AND is not over a control
-    if (!isOverControl && dragStartX >= 0 && dragStartX <= width && dragStartY >= 40 && dragStartY <= height + 40) {  // Consider canvas position
-        if (circles.length < MAX_CIRCLES) { // Added max circle check
-            let parentCircle = null;
-            for (let i = circles.length - 1; i >= 0; i--) {
-                let otherCircle = circles[i];
-                if (otherCircle.nestingLevel < MAX_NESTING_LEVEL &&
-                    dist(dragStartX, dragStartY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
-                    parentCircle = otherCircle;
-                    break;
-                }
-            }
-
-            const newCircle = new WaveCircle(dragStartX, dragStartY, growthSpeed, parentCircle); // Use initial position
-            if (parentCircle) {
-                parentCircle.children.push(newCircle);
-            }
-            circles.push(newCircle);
             if (window.sessionManager) {
                 window.sessionManager.updateSessionStats(circles);
             }
         }
+        
+        // Function to use when mouse is pressed
+        function mousePressed() {
+            // Check if click is on any control element
+            let isOverControl = false;
+            let dragStartX = mouseX;  // Store the initial mouse X position
+            let dragStartY = mouseY;  // Store the initial mouse Y position
 
-    }
+            if (clearButton && clearButton.elt) {
+                const buttonRect = clearButton.elt.getBoundingClientRect();
+                isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
+                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
+            }
 
-}
+            if (applyButton && applyButton.elt) {
+                const buttonRect = applyButton.elt.getBoundingClientRect();
+                isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
+                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
+            }
+
+            if (modeSelect && modeSelect.elt) {
+                const buttonRect = modeSelect.elt.getBoundingClientRect();
+                isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
+                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
+            }
+
+            if (rateSlider && rateSlider.elt) {
+                const sliderRect = rateSlider.elt.getBoundingClientRect();
+                isOverControl = isOverControl || (dragStartX >= sliderRect.left && dragStartX <= sliderRect.right &&
+                       dragStartY >= sliderRect.top && dragStartY <= sliderRect.bottom);
+            }
+
+            // Check if the click started within the canvas bounds AND is not over a control
+            if (!isOverControl && dragStartX >= 0 && dragStartX <= width && dragStartY >= 40 && dragStartY <= height + 40) {  // Consider canvas position
+                if (circles.length < MAX_CIRCLES) { // Added max circle check
+                    let parentCircle = null;
+                    for (let i = circles.length - 1; i >= 0; i--) {
+                        let otherCircle = circles[i];
+                        if (otherCircle.nestingLevel < MAX_NESTING_LEVEL &&
+                            dist(dragStartX, dragStartY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
+                            parentCircle = otherCircle;
+                            break;
+                        }
+                    }
+
+                    const newCircle = new WaveCircle(dragStartX, dragStartY, growthSpeed, parentCircle); // Use initial position
+                    if (parentCircle) {
+                        parentCircle.children.push(newCircle);
+                    }
+                    circles.push(newCircle);
+                    if (window.sessionManager) {
+                        window.sessionManager.updateSessionStats(circles);
+                    }
+                }
+            }
+        }
 
         function setup() {
             let cnv = createCanvas(800, 800);
-            cnv.position(0, 40);  //Consistent with body style.
+            cnv.position(0, 40);  // Consistent with body style.
             spatialGrid = new SpatialGrid(width, height, CELL_SIZE);
 
             let controlsDiv = createDiv();
@@ -179,17 +176,16 @@ function mousePressed() {
             rateSlider.parent(sliderContainer);
             rateSlider.input(updatePulsationRate);
 
-             // Initialize session manager and store it globally
+            // Initialize session manager and store it globally
             window.sessionManager = initializeUserSession();
-             //Update session stats on initial setup
-             if (window.sessionManager) {
-               window.sessionManager.updateSessionStats(circles);
-             }
-
+            // Update session stats on initial setup
+            if (window.sessionManager) {
+                window.sessionManager.updateSessionStats(circles);
+            }
         }
 
         function updatePulsationRate() {
-            pulsationRate = rateSlider.value();
+            pulsationRate = constrain(rateSlider.value(), 0.1, 2.0); // Limit pulsation rate
             circles.forEach(circle => circle.setPulsationRate(pulsationRate));
         }
 
@@ -264,7 +260,7 @@ function mousePressed() {
                 this.centerX = x;
                 this.centerY = y;
                 this.currentRadius = 0;
-                this.growthRate = growthSpeed;
+                this.growthRate = constrain(growthSpeed, 0.5, 2.0); // Limit growth speed
                 this.direction = 1;
                 this.color = color(0, 0, 139, 150);
                 this.parent = parent;
@@ -281,21 +277,31 @@ function mousePressed() {
 
             update() {
                 const deltaTime = 1 / frameRate();
+                const numSubSteps = 3; // Example: 3 sub-steps
+                const subDeltaTime = deltaTime / numSubSteps;
 
-                if (this.direction === 1) {
-                    this.currentRadius += this.growthRate * deltaTime * 60 * this.pulsationRate;
-                } else {
-                    this.currentRadius = max(this.currentRadius - this.growthRate * deltaTime * 60 * this.pulsationRate, 0);
-                    if (this.currentRadius <= 0) {
-                        this.direction = 1;
+                for (let i = 0; i < numSubSteps; i++) {
+                    if (this.direction === 1) {
+                        this.currentRadius += this.growthRate * subDeltaTime * 60 * this.pulsationRate;
+                    } else {
+                        this.currentRadius = max(this.currentRadius - this.growthRate * subDeltaTime * 60 * this.pulsationRate, 0);
+                        if (this.currentRadius <= 0) {
+                            this.direction = 1;
+                        }
                     }
-                }
 
-                if (this.parent) {
-                    let maxRadius = abs(this.parent.currentRadius - dist(this.centerX, this.centerY, this.parent.centerX, this.parent.centerY));
-                    if (this.currentRadius >= maxRadius) {
-                        this.direction = -1;
+                    if (this.parent) {
+                        let maxRadius = abs(this.parent.currentRadius - dist(this.centerX, this.centerY, this.parent.centerX, this.parent.centerY));
+                        if (this.currentRadius >= maxRadius) {
+                            this.direction = -1;
+                        }
                     }
+
+                    // Check for collisions each sub-step
+                    const potentialCollisions = spatialGrid.getPotentialCollisions(this);
+                    potentialCollisions.forEach(other => {
+                        this.checkCollision(other); // Check collisions inside the substeps.
+                    });
                 }
             }
 
@@ -324,32 +330,41 @@ function mousePressed() {
 
                 const sumRadii = this.currentRadius + other.currentRadius;
                 if (distance <= sumRadii && distance > 0) {
-                    this.handleCollisionResponse(other, distance);
+                    // Calculate overlap
+                    let overlap = sumRadii - distance;
+                    this.handleCollisionResponse(other, distance, overlap); // Pass overlap
                     return true;
                 }
                 return false;
             }
 
-            handleCollisionResponse(other, distance) {
-                this.direction *= -1;
-                other.direction *= -1;
-                this.lastCollisionTime = frameCount;
-                other.lastCollisionTime = frameCount;
+            handleCollisionResponse(other, distance, overlap = 0) {
+    this.direction *= -1;
+    other.direction *= -1;
+    this.lastCollisionTime = frameCount;
+    other.lastCollisionTime = frameCount;
 
-                const angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
-                const collisionX = this.centerX + this.currentRadius * cos(angle);
-                const collisionY = this.centerY + this.currentRadius * sin(angle);
+    const angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX);
 
-                if (window.audioPlayer && window.audioPlayer.isReady()) {
-                    const sampleIndex1 = this.radiusToSampleIndex(this.currentRadius);
-                    const sampleIndex2 = this.radiusToSampleIndex(other.currentRadius);
+    const pushOutAmount = overlap / 2;  // If overlap is undefined, it defaults to 0
 
-                    window.audioPlayer.playSample(sampleIndex1, collisionX, width);
-                    window.audioPlayer.playSample(sampleIndex2, collisionX, width);
-                }
-            }
+    this.centerX -= pushOutAmount * cos(angle);
+    this.centerY -= pushOutAmount * sin(angle);
+    other.centerX += pushOutAmount * cos(angle);
+    other.centerY += pushOutAmount * sin(angle);
 
-             radiusToSampleIndex(radius) {
+    const collisionX = this.centerX + this.currentRadius * cos(angle);
+
+    if (window.audioPlayer && window.audioPlayer.isReady()) {
+        const sampleIndex1 = this.radiusToSampleIndex(this.currentRadius);
+        const sampleIndex2 = this.radiusToSampleIndex(other.currentRadius);
+
+        window.audioPlayer.playSample(sampleIndex1, collisionX, width);
+        window.audioPlayer.playSample(sampleIndex2, collisionX, width);
+    }
+}
+
+            radiusToSampleIndex(radius) {
                 const minRadius = 0;
                 const maxRadius = 300;
                 const normalized = (radius - minRadius) / (maxRadius - minRadius);
@@ -358,8 +373,6 @@ function mousePressed() {
                 return modeIndices[Math.max(0, Math.min(index, modeIndices.length - 1))];
             }
         }
-
-
 
         function draw() {
             background(220);
@@ -380,10 +393,10 @@ function mousePressed() {
             });
         }
 
-        // Make functions globally available
+        // Make functions globally available (though typically not needed in p5.js sketches)
         window.setup = setup;
         window.draw = draw;
-        window.mousePressed = mousePressed; //Keep a global reference
+        window.mousePressed = mousePressed; // Keep a global reference
         // The clearField function doesn't need to be explicitly exposed, it's called directly
 
     </script>
