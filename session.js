@@ -73,3 +73,4 @@ window.addEventListener('beforeunload', () => {
 
     }
 });
+export default initializeUserSession;
