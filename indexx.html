@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulsating Circles</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding-top: 40px;
+            font-family: sans-serif;
+            background: #1a1a1a;
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            position: fixed;
+            top: 40px;
+            left: calc(50% + 410px);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-start;
+            z-index: 1000;
+        }
+        select, button {
+            padding: 8px 12px;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button.secondary {
+            background: #666;
+        }
+        button.secondary:hover {
+            background: #555;
+        }
+        select {
+            background: #333;
+            color: white;
+        }
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .slider-label {
+            font-size: 14px;
+            color: #ccc;
+        }
+        .toggle-group {
+            display: flex;
+            gap: 5px;
+        }
+        .toggle-group button {
+            padding: 8px 12px;
+        }
+        .toggle-group button.active {
+            background: #4CAF50;
+        }
+        .toggle-group button:not(.active) {
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        // ============================================================
+        // SESSION MANAGEMENT (embedded from session.js)
+        // ============================================================
+        function initializeUserSession() {
+            let sessionData = localStorage.getItem('waveSynthSession');
+            let session;
+
+            if (!sessionData) {
+                session = {
+                    id: Date.now() + Math.random().toString(36).substring(2),
+                    createdAt: new Date().toISOString(),
+                    circleCount: 0
+                };
+                localStorage.setItem('waveSynthSession', JSON.stringify(session));
+            } else {
+                session = JSON.parse(sessionData);
+            }
+
+            function updateSessionStats(circles) {
+                session.circleCount = circles.length;
+                localStorage.setItem('waveSynthSession', JSON.stringify(session));
+            }
+
+            function cleanupOldSessions() {
+                const currentTime = new Date();
+                const oneHourAgo = new Date(currentTime - 60 * 60 * 1000);
+
+                Object.keys(localStorage)
+                    .filter(key => key.startsWith('waveSynthSession'))
+                    .forEach(key => {
+                        try {
+                            const sessionData = JSON.parse(localStorage.getItem(key));
+                            const sessionCreatedAt = new Date(sessionData.createdAt);
+                            if (sessionCreatedAt < oneHourAgo) {
+                                localStorage.removeItem(key);
+                            }
+                        } catch (e) {
+                            localStorage.removeItem(key);
+                        }
+                    });
+            }
+
+            setInterval(cleanupOldSessions, 30 * 60 * 1000);
+
+            const sessionCreatedAt = new Date(session.createdAt);
+            const sessionDuration = new Date() - sessionCreatedAt;
+
+            if (sessionDuration > 2 * 60 * 60 * 1000) {
+                localStorage.removeItem('waveSynthSession');
+                return initializeUserSession();
+            }
+
+            console.log(`Session initialized: ${session.id}`);
+            console.log(`Session created at: ${session.createdAt}`);
+
+            return {
+                updateSessionStats: updateSessionStats,
+                getSessionData: () => JSON.parse(localStorage.getItem('waveSynthSession'))
+            };
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (window.sessionManager) {
+                const sessionData = window.sessionManager.getSessionData();
+                if (sessionData && window.circles) {
+                    sessionData.circleCount = window.circles.length;
+                    localStorage.setItem('waveSynthSession', JSON.stringify(sessionData));
+                }
+            }
+        });
+
+        // ============================================================
+        // AUDIO PLAYER (embedded from audio.js)
+        // ============================================================
+        class AudioPlayer {
+            constructor() {
+                this.context = null;
+                this.samples = {};
+                this.masterGainNode = null;
+                this.compressor = null;
+                this.isLoaded = false;
+                this.loadingPromise = null;
+                this.maxVoices = 16;
+                this.activeSources = new Map();
+                
+                document.addEventListener("click", () => this.initAudioContext(), { once: true });
+            }
+
+            initAudioContext() {
+                if (this.context) return;
+                
+                this.context = new (window.AudioContext || window.webkitAudioContext)();
+                
+                this.compressor = this.context.createDynamicsCompressor();
+                this.compressor.threshold.setValueAtTime(-24, this.context.currentTime);
+                this.compressor.knee.setValueAtTime(30, this.context.currentTime);
+                this.compressor.ratio.setValueAtTime(12, this.context.currentTime);
+                this.compressor.attack.setValueAtTime(0.003, this.context.currentTime);
+                this.compressor.release.setValueAtTime(0.25, this.context.currentTime);
+
+                this.masterGainNode = this.context.createGain();
+                this.masterGainNode.gain.value = 0.8;
+
+                this.compressor.connect(this.masterGainNode);
+                this.masterGainNode.connect(this.context.destination);
+                
+                if (!this.loadingPromise) {
+                    this.loadingPromise = this.loadSamples();
+                }
+            }
+
+            async loadSamples() {
+                try {
+                    const loadPromises = [];
+                    for (let i = 1; i <= 44; i++) {
+                        const url = `samples/${String(i).padStart(2, "0")}.wav`;
+                        loadPromises.push(
+                            this.loadSample(url)
+                                .then(buffer => {
+                                    this.samples[i] = buffer;
+                                    console.log(`Loaded sample ${i}`);
+                                })
+                                .catch(error => {
+                                    console.error(`Failed to load sample ${i}:`, error);
+                                    this.samples[i] = null;
+                                })
+                        );
+                    }
+                    
+                    await Promise.all(loadPromises);
+                    this.isLoaded = true;
+                    console.log("All samples loaded successfully");
+                } catch (error) {
+                    console.error("Error loading samples:", error);
+                    this.isLoaded = false;
+                }
+            }
+
+            async loadSample(url) {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const arrayBuffer = await response.arrayBuffer();
+                return await this.context.decodeAudioData(arrayBuffer);
+            }
+
+            playSample(sampleIndex, x, canvasWidth) {
+                if (!this.context || !this.isLoaded || !this.samples[sampleIndex]) {
+                    return;
+                }
+
+                if (this.activeSources.size >= this.maxVoices) {
+                    this.removeOldestSource();
+                }
+
+                const sample = this.samples[sampleIndex];
+                const sourceId = Date.now() + Math.random();
+
+                const source = this.context.createBufferSource();
+                source.buffer = sample;
+
+                const panner = this.context.createStereoPanner();
+                const normalizedX = (x / canvasWidth) * 2 - 1;
+                panner.pan.setValueAtTime(normalizedX, this.context.currentTime);
+
+                const gainNode = this.context.createGain();
+                const baseGain = 0.3 / Math.max(1, Math.sqrt(this.activeSources.size));
+                gainNode.gain.setValueAtTime(baseGain, this.context.currentTime);
+                gainNode.gain.linearRampToValueAtTime(
+                    0,
+                    this.context.currentTime + sample.duration - 0.05
+                );
+
+                source.connect(gainNode);
+                gainNode.connect(panner);
+                panner.connect(this.compressor);
+
+                source.start();
+                
+                const sourceInfo = {
+                    source,
+                    gainNode,
+                    panner,
+                    endTime: this.context.currentTime + sample.duration,
+                    startTime: this.context.currentTime
+                };
+
+                this.activeSources.set(sourceId, sourceInfo);
+                source.onended = () => this.removeSource(sourceId);
+
+                this.cleanupSources();
+            }
+
+            removeOldestSource() {
+                if (this.activeSources.size === 0) return;
+                
+                let oldestId = null;
+                let oldestTime = Infinity;
+                
+                for (const [id, sourceInfo] of this.activeSources) {
+                    if (sourceInfo.startTime < oldestTime) {
+                        oldestTime = sourceInfo.startTime;
+                        oldestId = id;
+                    }
+                }
+
+                if (oldestId) {
+                    this.removeSource(oldestId);
+                }
+            }
+
+            removeSource(sourceId) {
+                const sourceInfo = this.activeSources.get(sourceId);
+                if (sourceInfo) {
+                    try {
+                        sourceInfo.source.stop();
+                        sourceInfo.source.disconnect();
+                        sourceInfo.gainNode.disconnect();
+                        sourceInfo.panner.disconnect();
+                    } catch (e) {
+                        console.warn("Error removing source:", e);
+                    }
+                    this.activeSources.delete(sourceId);
+                }
+            }
+
+            cleanupSources() {
+                const currentTime = this.context.currentTime;
+                for (const [id, sourceInfo] of this.activeSources) {
+                    if (currentTime >= sourceInfo.endTime) {
+                        this.removeSource(id);
+                    }
+                }
+            }
+
+            stopAllSources() {
+                for (const id of this.activeSources.keys()) {
+                    this.removeSource(id);
+                }
+                this.activeSources.clear();
+            }
+
+            isReady() {
+                return this.context && this.isLoaded;
+            }
+        }
+
+        // ============================================================
+        // MAIN APPLICATION
+        // ============================================================
+        
+        // Global state
+        let circles = [];
+        window.circles = circles;
+        let growthSpeed = 1;
+        let pulsationRate = 1.0;
+        let currentMode = 'chromatic';
+        let audioMode = 'samples';
+        
+        // UI elements
+        let clearButton, modeSelect, applyButton, rateSlider;
+        let synthBtn, samplesBtn;
+
+        // Audio systems
+        let audioPlayer;
+        let polySynth, reverb, delay;
+
+        // Musical modes
+        const MODES = {
+            chromatic: Array.from({length: 44}, (_, i) => i + 1),
+            ionian: [1, 3, 5, 6, 8, 10, 12, 13, 15, 17, 18, 20, 22, 24, 25, 27, 29, 30, 32, 34, 36, 37, 39, 41, 42, 44],
+            dorian: [1, 3, 4, 6, 8, 10, 11, 13, 15, 16, 18, 20, 22, 23, 25, 27, 28, 30, 32, 34, 35, 37, 39, 41, 42],
+            phrygian: [1, 2, 4, 6, 8, 9, 11, 13, 14, 16, 18, 20, 21, 23, 25, 26, 28, 30, 32, 33, 35, 37, 38, 40, 42],
+            lydian: [1, 3, 5, 7, 8, 10, 12, 13, 15, 17, 19, 20, 22, 24, 25, 27, 29, 31, 32, 34, 36, 37, 39, 41, 43],
+            mixolydian: [1, 3, 5, 6, 8, 10, 11, 13, 15, 17, 18, 20, 22, 23, 25, 27, 29, 30, 32, 34, 35, 37, 39, 41, 42],
+            aeolian: [1, 3, 4, 6, 8, 9, 11, 13, 15, 16, 18, 20, 21, 23, 25, 27, 28, 30, 32, 33, 35, 37, 39, 40, 42],
+            locrian: [1, 2, 4, 6, 7, 9, 11, 13, 14, 16, 18, 19, 21, 23, 25, 26, 28, 30, 31, 33, 35, 37, 38, 40, 42],
+            pentatonic: [1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25, 27, 29, 32, 34, 37, 39, 41, 44]
+        };
+
+        // ============================================================
+        // P5.JS SETUP
+        // ============================================================
+        function setup() {
+            let cnv = createCanvas(800, 800);
+            cnv.position(0, 40);
+
+            // Initialize audio systems
+            audioPlayer = new AudioPlayer();
+            window.audioPlayer = audioPlayer;
+
+            polySynth = new p5.PolySynth();
+            reverb = new p5.Reverb();
+            delay = new p5.Delay();
+            reverb.process(polySynth, 3, 1);
+            delay.process(polySynth, 0.2, 0.3, 2300);
+
+            // Create controls
+            let controlsDiv = createDiv();
+            controlsDiv.class('controls');
+            controlsDiv.parent(document.body);
+
+            modeSelect = createSelect();
+            modeSelect.parent(controlsDiv);
+            Object.keys(MODES).forEach(mode => modeSelect.option(mode));
+            modeSelect.value(currentMode);
+
+            applyButton = createButton('Apply Mode');
+            applyButton.parent(controlsDiv);
+            applyButton.mousePressed(applyMode);
+
+            let audioLabel = createDiv('Audio Mode:');
+            audioLabel.class('slider-label');
+            audioLabel.parent(controlsDiv);
+
+            let toggleGroup = createDiv();
+            toggleGroup.class('toggle-group');
+            toggleGroup.parent(controlsDiv);
+
+            synthBtn = createButton('Synth');
+            synthBtn.parent(toggleGroup);
+            synthBtn.mousePressed(() => setAudioMode('synth'));
+
+            samplesBtn = createButton('Samples');
+            samplesBtn.parent(toggleGroup);
+            samplesBtn.addClass('active');
+            samplesBtn.mousePressed(() => setAudioMode('samples'));
+
+            clearButton = createButton('Clear');
+            clearButton.parent(controlsDiv);
+            clearButton.mousePressed(clearField);
+
+            let sliderContainer = createDiv();
+            sliderContainer.class('slider-container');
+            sliderContainer.parent(controlsDiv);
+
+            let sliderLabel = createDiv('Pulsation Rate');
+            sliderLabel.class('slider-label');
+            sliderLabel.parent(sliderContainer);
+
+            rateSlider = createSlider(0.1, 2.0, 1.0, 0.1);
+            rateSlider.parent(sliderContainer);
+            rateSlider.input(updatePulsationRate);
+
+            // Initialize session
+            window.sessionManager = initializeUserSession();
+            if (window.sessionManager) {
+                window.sessionManager.updateSessionStats(circles);
+            }
+
+            console.log('Wave Circle Sound Game initialized');
+        }
+
+        // ============================================================
+        // DRAW LOOP (PULSATE.JS PATTERN)
+        // ============================================================
+        function draw() {
+            background(20);
+
+            const bumped = [];
+            const collisions = [];
+
+            // PHASE 1: Check collisions
+            circles.forEach(circle => {
+                circle.checkCollisions(circles, bumped, collisions);
+            });
+
+            // PHASE 2: Update and display
+            circles.forEach(circle => {
+                circle.update();
+                circle.display();
+            });
+
+            // PHASE 3: Play sounds
+            if (collisions.length > 0) {
+                playCollisionSounds(collisions);
+            }
+        }
+
+        // ============================================================
+        // CIRCLE CLASS (PULSATE.JS STYLE)
+        // ============================================================
+        class WaveCircle {
+            constructor(x, y, growthSpeed = 1) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.speed = growthSpeed * pulsationRate;
+                this.direction = 1;
+                this.id = circles.length;
+                this.color = color(random(100, 200), random(100, 200), random(150, 255), 180);
+            }
+
+            setPulsationRate(rate) {
+                this.speed = growthSpeed * rate;
+            }
+
+            checkCollisions(allCircles, bumped, collisions) {
+                for (let i = this.id + 1; i < allCircles.length; i++) {
+                    const other = allCircles[i];
+                    const distance = dist(this.x, this.y, other.x, other.y);
+                    const sumRadii = this.radius + other.radius;
+
+                    if (distance < sumRadii) {
+                        const big = max(this.radius, other.radius);
+                        const small = min(this.radius, other.radius);
+
+                        if (distance + small > big) {
+                            if (!bumped.includes(this.id)) {
+                                this.direction *= -1;
+                                bumped.push(this.id);
+                            }
+
+                            if (!bumped.includes(i)) {
+                                other.direction *= -1;
+                                bumped.push(i);
+                            }
+
+                            collisions.push({
+                                sumRadii: big + small,
+                                x: this.x,
+                                canvasWidth: width
+                            });
+                        }
+                    }
+                }
+
+                if (this.radius < 1) {
+                    this.direction = 1;
+                    this.radius = 1;
+                }
+                if (this.radius > 400) {
+                    this.direction = -1;
+                    this.radius = 400;
+                }
+            }
+
+            update() {
+                this.radius += this.speed * this.direction;
+            }
+
+            display() {
+                noFill();
+                stroke(this.color);
+                strokeWeight(2);
+                ellipse(this.x, this.y, this.radius * 2);
+            }
+
+            radiusToSampleIndex(radius) {
+                const minRadius = 0;
+                const maxRadius = 300;
+                const normalized = (radius - minRadius) / (maxRadius - minRadius);
+                const modeIndices = MODES[currentMode];
+                const index = Math.floor(normalized * (modeIndices.length - 1));
+                return modeIndices[Math.max(0, Math.min(index, modeIndices.length - 1))];
+            }
+        }
+
+        // ============================================================
+        // AUDIO PLAYBACK
+        // ============================================================
+        function playCollisionSounds(collisions) {
+            if (audioMode === 'synth') {
+                playSynthCollisions(collisions);
+            } else {
+                playSampleCollisions(collisions);
+            }
+        }
+
+        function playSynthCollisions(collisions) {
+            userStartAudio();
+
+            collisions.forEach(({sumRadii}) => {
+                let n = round(200 - constrain(sumRadii, 5, 195));
+                let oct = floor(map(n, 5, 195, 2, 5));
+                let t = n - round(map(oct, 2, 5, 5, 195, true));
+
+                let tone;
+                if (t < 10) tone = "C";
+                else if (t < 20) tone = "D";
+                else if (t < 30) tone = "E";
+                else if (t < 40) tone = "F";
+                else if (t < 50) tone = "G";
+                else tone = "B";
+
+                let note = tone + oct;
+                polySynth.play(note, 0.5, 0, 0.1);
+            });
+        }
+
+        function playSampleCollisions(collisions) {
+            collisions.forEach(({sumRadii, x, canvasWidth}) => {
+                const tempCircle = new WaveCircle(0, 0);
+                const sampleIndex = tempCircle.radiusToSampleIndex(sumRadii / 2);
+
+                if (window.audioPlayer && window.audioPlayer.isReady()) {
+                    window.audioPlayer.playSample(sampleIndex, x, canvasWidth);
+                }
+            });
+        }
+
+        // ============================================================
+        // EVENT HANDLERS
+        // ============================================================
+        function mousePressed() {
+            const checkControl = (element) => {
+                if (element && element.elt) {
+                    const rect = element.elt.getBoundingClientRect();
+                    return mouseX >= rect.left && mouseX <= rect.right &&
+                           mouseY >= rect.top && mouseY <= rect.bottom;
+                }
+                return false;
+            };
+
+            const isOverControl = checkControl(clearButton) || checkControl(applyButton) ||
+                                checkControl(modeSelect) || checkControl(rateSlider) ||
+                                checkControl(synthBtn) || checkControl(samplesBtn);
+
+            if (!isOverControl && mouseX >= 0 && mouseX <= width && 
+                mouseY >= 40 && mouseY <= height + 40) {
+                const newCircle = new WaveCircle(mouseX, mouseY, growthSpeed);
+                circles.push(newCircle);
+                
+                if (window.sessionManager) {
+                    window.sessionManager.updateSessionStats(circles);
+                }
+            }
+        }
+
+        function keyPressed() {
+            if (keyCode === 32) {
+                clearField();
+            }
+        }
+
+        function clearField() {
+            circles.length = 0;
+            if (window.audioPlayer) {
+                window.audioPlayer.stopAllSources();
+            }
+            if (window.sessionManager) {
+                window.sessionManager.updateSessionStats(circles);
+            }
+        }
+
+        function updatePulsationRate() {
+            pulsationRate = constrain(rateSlider.value(), 0.1, 2.0);
+            circles.forEach(circle => circle.setPulsationRate(pulsationRate));
+        }
+
+        function applyMode() {
+            currentMode = modeSelect.value();
+            clearField();
+        }
+
+        function setAudioMode(mode) {
+            audioMode = mode;
+            
+            if (mode === 'synth') {
+                synthBtn.addClass('active');
+                samplesBtn.removeClass('active');
+            } else {
+                samplesBtn.addClass('active');
+                synthBtn.removeClass('active');
+            }
+        }
+    </script>
+</body>
+</html>
