@@ -5,20 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pulsating Circles</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-    <!-- session.js is now a module -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
     <style>
         body {
             margin: 0;
-            padding-top: 40px; /* Consistent with canvas positioning */
-            font-family: sans-serif; /* Added for better default font */
+            padding-top: 40px;
+            font-family: sans-serif;
+            background: #1a1a1a;
         }
         canvas {
             display: block;
         }
         .controls {
             position: fixed;
-            top: 40px;        /* Consistent with canvas positioning */
-            left: calc(50% + 410px); /* Centers controls to the right of canvas */
+            top: 40px;
+            left: calc(50% + 410px);
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -26,8 +27,28 @@
             z-index: 1000;
         }
         select, button {
-            padding: 5px;
+            padding: 8px 12px;
             font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button.secondary {
+            background: #666;
+        }
+        button.secondary:hover {
+            background: #555;
+        }
+        select {
+            background: #333;
+            color: white;
         }
         .slider-container {
             display: flex;
@@ -36,29 +57,48 @@
         }
         .slider-label {
             font-size: 14px;
+            color: #ccc;
+        }
+        .toggle-group {
+            display: flex;
+            gap: 5px;
+        }
+        .toggle-group button {
+            padding: 8px 12px;
+        }
+        .toggle-group button.active {
+            background: #4CAF50;
+        }
+        .toggle-group button:not(.active) {
+            background: #444;
         }
     </style>
 </head>
 <body>
     <script type="module">
-        import { audioPlayer } from './audio.js';  // Make sure audio.js exists and exports correctly
-        window.audioPlayer = audioPlayer; // Make audioPlayer globally accessible.
+        import { audioPlayer } from './audio.js';
+        window.audioPlayer = audioPlayer;
     </script>
 
     <script type="module">
         import initializeUserSession from './session.js';
 
+        // ============ GLOBAL STATE ============
         let circles = [];
-        window.circles = circles; // Make circles globally accessible.
-        let spatialGrid;
+        window.circles = circles;
         let growthSpeed = 1;
-        const MAX_CIRCLES = 10;
-        const MAX_NESTING_LEVEL = 3;
-        const CELL_SIZE = 100;
-        let clearButton, modeSelect, applyButton, rateSlider;
-        let currentMode = 'chromatic';
         let pulsationRate = 1.0;
+        let currentMode = 'chromatic';
+        let audioMode = 'samples'; // 'samples' or 'synth'
+        
+        // UI elements
+        let clearButton, modeSelect, applyButton, rateSlider;
+        let synthBtn, samplesBtn;
 
+        // p5.sound synth (for synth mode)
+        let polySynth, reverb, delay;
+
+        // ============ MUSICAL MODES ============
         const MODES = {
             chromatic: Array.from({length: 44}, (_, i) => i + 1),
             ionian: [1, 3, 5, 6, 8, 10, 12, 13, 15, 17, 18, 20, 22, 24, 25, 27, 29, 30, 32, 34, 36, 37, 39, 41, 42, 44],
@@ -71,78 +111,19 @@
             pentatonic: [1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25, 27, 29, 32, 34, 37, 39, 41, 44]
         };
 
-        // Function to clear the field (now a regular function)
-        function clearField() {
-            circles.length = 0; // Efficiently clears the array
-            if (window.audioPlayer) {
-                window.audioPlayer.stopAllSources();
-            }
-            if (window.sessionManager) {
-                window.sessionManager.updateSessionStats(circles);
-            }
-        }
-        
-        // Function to use when mouse is pressed
-        function mousePressed() {
-            // Check if click is on any control element
-            let isOverControl = false;
-            let dragStartX = mouseX;  // Store the initial mouse X position
-            let dragStartY = mouseY;  // Store the initial mouse Y position
-
-            if (clearButton && clearButton.elt) {
-                const buttonRect = clearButton.elt.getBoundingClientRect();
-                isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
-                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
-            }
-
-            if (applyButton && applyButton.elt) {
-                const buttonRect = applyButton.elt.getBoundingClientRect();
-                isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
-                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
-            }
-
-            if (modeSelect && modeSelect.elt) {
-                const buttonRect = modeSelect.elt.getBoundingClientRect();
-                isOverControl = isOverControl || (dragStartX >= buttonRect.left && dragStartX <= buttonRect.right &&
-                       dragStartY >= buttonRect.top && dragStartY <= buttonRect.bottom);
-            }
-
-            if (rateSlider && rateSlider.elt) {
-                const sliderRect = rateSlider.elt.getBoundingClientRect();
-                isOverControl = isOverControl || (dragStartX >= sliderRect.left && dragStartX <= sliderRect.right &&
-                       dragStartY >= sliderRect.top && dragStartY <= sliderRect.bottom);
-            }
-
-            // Check if the click started within the canvas bounds AND is not over a control
-            if (!isOverControl && dragStartX >= 0 && dragStartX <= width && dragStartY >= 40 && dragStartY <= height + 40) {  // Consider canvas position
-                if (circles.length < MAX_CIRCLES) { // Added max circle check
-                    let parentCircle = null;
-                    for (let i = circles.length - 1; i >= 0; i--) {
-                        let otherCircle = circles[i];
-                        if (otherCircle.nestingLevel < MAX_NESTING_LEVEL &&
-                            dist(dragStartX, dragStartY, otherCircle.centerX, otherCircle.centerY) <= otherCircle.currentRadius) {
-                            parentCircle = otherCircle;
-                            break;
-                        }
-                    }
-
-                    const newCircle = new WaveCircle(dragStartX, dragStartY, growthSpeed, parentCircle); // Use initial position
-                    if (parentCircle) {
-                        parentCircle.children.push(newCircle);
-                    }
-                    circles.push(newCircle);
-                    if (window.sessionManager) {
-                        window.sessionManager.updateSessionStats(circles);
-                    }
-                }
-            }
-        }
-
+        // ============ P5.JS SETUP ============
         function setup() {
             let cnv = createCanvas(800, 800);
-            cnv.position(0, 40);  // Consistent with body style.
-            spatialGrid = new SpatialGrid(width, height, CELL_SIZE);
+            cnv.position(0, 40);
 
+            // Initialize p5.sound synth
+            polySynth = new p5.PolySynth();
+            reverb = new p5.Reverb();
+            delay = new p5.Delay();
+            reverb.process(polySynth, 3, 1);
+            delay.process(polySynth, 0.2, 0.3, 2300);
+
+            // Create controls container
             let controlsDiv = createDiv();
             controlsDiv.class('controls');
             controlsDiv.parent(document.body);
@@ -157,6 +138,24 @@
             applyButton = createButton('Apply Mode');
             applyButton.parent(controlsDiv);
             applyButton.mousePressed(applyMode);
+
+            // Audio mode toggle
+            let audioLabel = createDiv('Audio Mode:');
+            audioLabel.class('slider-label');
+            audioLabel.parent(controlsDiv);
+
+            let toggleGroup = createDiv();
+            toggleGroup.class('toggle-group');
+            toggleGroup.parent(controlsDiv);
+
+            synthBtn = createButton('Synth');
+            synthBtn.parent(toggleGroup);
+            synthBtn.mousePressed(() => setAudioMode('synth'));
+
+            samplesBtn = createButton('Samples');
+            samplesBtn.parent(toggleGroup);
+            samplesBtn.addClass('active');
+            samplesBtn.mousePressed(() => setAudioMode('samples'));
 
             // Clear button
             clearButton = createButton('Clear');
@@ -176,217 +175,117 @@
             rateSlider.parent(sliderContainer);
             rateSlider.input(updatePulsationRate);
 
-            // Initialize session manager and store it globally
+            // Initialize session manager
             window.sessionManager = initializeUserSession();
-            // Update session stats on initial setup
             if (window.sessionManager) {
                 window.sessionManager.updateSessionStats(circles);
             }
+
+            console.log('Wave Circle Sound Game initialized');
+            console.log('Click to create circles, Space to clear');
         }
 
-        function updatePulsationRate() {
-            pulsationRate = constrain(rateSlider.value(), 0.1, 2.0); // Limit pulsation rate
-            circles.forEach(circle => circle.setPulsationRate(pulsationRate));
-        }
+        // ============ DRAW LOOP (PULSATE.JS PATTERN) ============
+        function draw() {
+            background(20);
 
-        function applyMode() {
-            currentMode = modeSelect.value();
-            clearField();
-        }
+            // Arrays to track this frame (pulsate.js pattern)
+            const bumped = [];      // Which circles reversed this frame
+            const collisions = [];  // Collision data for audio
 
-       class SpatialGrid {
-            constructor(width, height, cellSize) {
-                this.cellSize = cellSize;
-                this.cols = Math.ceil(width / cellSize);
-                this.rows = Math.ceil(height / cellSize);
-                this.grid = new Array(this.cols * this.rows).fill().map(() => []);
-            }
+            // PHASE 1: Check all collisions
+            circles.forEach(circle => {
+                circle.checkCollisions(circles, bumped, collisions);
+            });
 
-            clear() {
-                for (let i = 0; i < this.grid.length; i++) {
-                    this.grid[i].length = 0;
-                }
-            }
+            // PHASE 2: Update and display
+            circles.forEach(circle => {
+                circle.update();
+                circle.display();
+            });
 
-            getCell(x, y) {
-                const col = Math.floor(x / this.cellSize);
-                const row = Math.floor(y / this.cellSize);
-                if (col >= 0 && col < this.cols && row >= 0 && row < this.rows) {
-                    return this.grid[row * this.cols + col];
-                }
-                return null;
-            }
-
-            insert(circle) {
-                const radius = circle.currentRadius;
-                const left = Math.max(0, Math.floor((circle.centerX - radius) / this.cellSize));
-                const right = Math.min(this.cols - 1, Math.floor((circle.centerX + radius) / this.cellSize));
-                const top = Math.max(0, Math.floor((circle.centerY - radius) / this.cellSize));
-                const bottom = Math.min(this.rows - 1, Math.floor((circle.centerY + radius) / this.cellSize));
-
-                for (let row = top; row <= bottom; row++) {
-                    for (let col = left; col <= right; col++) {
-                        this.grid[row * this.cols + col].push(circle);
-                    }
-                }
-            }
-
-            remove(circle) {
-                const radius = circle.currentRadius;
-                const left = Math.max(0, Math.floor((circle.centerX - radius) / this.cellSize));
-                const right = Math.min(this.cols - 1, Math.floor((circle.centerX + radius) / this.cellSize));
-                const top = Math.max(0, Math.floor((circle.centerY - radius) / this.cellSize));
-                const bottom = Math.min(this.rows - 1, Math.floor((circle.centerY + radius) / this.cellSize));
-
-                for (let row = top; row <= bottom; row++) {
-                    for (let col = left; col <= right; col++) {
-                        const index = this.grid[row * this.cols + col].indexOf(circle);
-                        if (index > -1) {
-                            this.grid[row * this.cols + col].splice(index, 1);
-                        }
-                    }
-                }
-            }
-
-            getPotentialCollisions(circle) {
-                const radius = circle.currentRadius;
-                const left = Math.max(0, Math.floor((circle.centerX - radius) / this.cellSize));
-                const right = Math.min(this.cols - 1, Math.floor((circle.centerX + radius) / this.cellSize));
-                const top = Math.max(0, Math.floor((circle.centerY - radius) / this.cellSize));
-                const bottom = Math.min(this.rows - 1, Math.floor((circle.centerY + radius) / this.cellSize));
-
-                const nearbyCircles = new Set();
-
-                for (let row = top; row <= bottom; row++) {
-                    for (let col = left; col <= right; col++) {
-                        const cell = this.grid[row * this.cols + col];
-                        cell.forEach(other => {
-                            if (other !== circle) {
-                                nearbyCircles.add(other);
-                            }
-                        });
-                    }
-                }
-
-                return Array.from(nearbyCircles);
+            // PHASE 3: Play collision sounds (batched)
+            if (collisions.length > 0) {
+                playCollisionSounds(collisions);
             }
         }
 
+        // ============ CIRCLE CLASS (SIMPLIFIED, PULSATE.JS STYLE) ============
         class WaveCircle {
-            constructor(x, y, growthSpeed = 1, parent = null) {
-                this.centerX = x;
-                this.centerY = y;
-                this.currentRadius = 0;
-                this.growthRate = constrain(growthSpeed, 0.5, 2.0); // Limit growth speed
+            constructor(x, y, growthSpeed = 1) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.speed = growthSpeed * pulsationRate;
                 this.direction = 1;
-                this.color = color(0, 0, 139, 150);
-                this.parent = parent;
-                this.children = [];
-                this.nestingLevel = parent ? parent.nestingLevel + 1 : 0;
-                this.lastCollisionTime = 0;
-                this.collisionCooldown = 10;
-                this.pulsationRate = pulsationRate;
+                this.id = circles.length;
+                this.color = color(random(100, 200), random(100, 200), random(150, 255), 180);
             }
 
             setPulsationRate(rate) {
-                this.pulsationRate = rate;
+                this.speed = growthSpeed * rate;
+            }
+
+            /**
+             * Check collisions with other circles (pulsate.js algorithm)
+             */
+            checkCollisions(allCircles, bumped, collisions) {
+                // Only check circles after this one (avoid double-checking)
+                for (let i = this.id + 1; i < allCircles.length; i++) {
+                    const other = allCircles[i];
+                    const distance = dist(this.x, this.y, other.x, other.y);
+                    const sumRadii = this.radius + other.radius;
+
+                    // Check if circles overlap
+                    if (distance < sumRadii) {
+                        const big = max(this.radius, other.radius);
+                        const small = min(this.radius, other.radius);
+
+                        // pulsate.js collision algorithm
+                        // Handles both edge collisions and nested collisions
+                        if (distance + small > big) {
+                            // Reverse this circle (if not already bumped)
+                            if (!bumped.includes(this.id)) {
+                                this.direction *= -1;
+                                bumped.push(this.id);
+                            }
+
+                            // Reverse other circle (if not already bumped)
+                            if (!bumped.includes(i)) {
+                                other.direction *= -1;
+                                bumped.push(i);
+                            }
+
+                            // Record collision for audio
+                            collisions.push({
+                                sumRadii: big + small,
+                                x: this.x,
+                                canvasWidth: width
+                            });
+                        }
+                    }
+                }
+
+                // Bounce off boundaries
+                if (this.radius < 1) {
+                    this.direction = 1;
+                    this.radius = 1;
+                }
+                if (this.radius > 400) {
+                    this.direction = -1;
+                    this.radius = 400;
+                }
             }
 
             update() {
-                const deltaTime = 1 / frameRate();
-                const numSubSteps = 3; // You can adjust this number
-                const subDeltaTime = deltaTime / numSubSteps;
-
-                for (let i = 0; i < numSubSteps; i++) {
-                    // Update radius in smaller steps
-                    if (this.direction === 1) {
-                        this.currentRadius += this.growthRate * subDeltaTime * 60 * this.pulsationRate;
-                    } else {
-                        this.currentRadius = max(this.currentRadius - this.growthRate * subDeltaTime * 60 * this.pulsationRate, 0);
-                        if (this.currentRadius <= 0) {
-                            this.direction = 1;
-                        }
-                    }
-
-                    if (this.parent) {
-                        let maxRadius = abs(this.parent.currentRadius - dist(this.centerX, this.centerY, this.parent.centerX, this.parent.centerY));
-                        if (this.currentRadius >= maxRadius) {
-                            this.direction = -1;
-                        }
-                    }
-
-                    // Re-insert into the spatial grid after potential radius change
-                    spatialGrid.remove(this);
-                    spatialGrid.insert(this);
-
-                    // Check for collisions within this sub-step
-                    const potentialCollisions = spatialGrid.getPotentialCollisions(this);
-                    potentialCollisions.forEach(other => {
-                        this.checkCollision(other); // Collision detection and response
-                    });
-                }
+                this.radius += this.speed * this.direction;
             }
 
             display() {
                 noFill();
                 stroke(this.color);
                 strokeWeight(2);
-                ellipse(this.centerX, this.centerY, this.currentRadius * 2, this.currentRadius * 2);
-            }
-
-            checkCollision(other) {
-                if (frameCount - this.lastCollisionTime < this.collisionCooldown) {
-                    return false;
-                }
-
-                const distance = dist(this.centerX, this.centerY, other.centerX, other.centerY);
-
-                if (this.parent === other || other.parent === this) {
-                    const collisionDistance = abs(this.currentRadius - other.currentRadius);
-                    if (abs(distance - collisionDistance) < 1) {
-                        this.handleCollisionResponse(other, distance);
-                        return true;
-                    }
-                    return false;
-                }
-
-                const sumRadii = this.currentRadius + other.currentRadius;
-                if (distance <= sumRadii && distance > 0) {
-                    // Calculate overlap
-                    let overlap = sumRadii - distance;
-                    this.handleCollisionResponse(other, distance, overlap); // Pass overlap
-                    return true;
-                }
-                return false;
-            }
-
-            handleCollisionResponse(other, distance, overlap = 0) {
-                this.direction *= -1;
-                other.direction *= -1;
-                this.lastCollisionTime = frameCount;
-                other.lastCollisionTime = frameCount;
-
-                const angle = atan2(other.centerY - this.centerY, other.centerX - this.centerX); // Define angle here
-
-                if (overlap > 0) {
-                    const pushOutAmount = overlap / 2;
-
-                    // Push the circles apart
-                    this.centerX -= pushOutAmount * cos(angle);
-                    this.centerY -= pushOutAmount * sin(angle);
-                    other.centerX += pushOutAmount * cos(angle);
-                    other.centerY += pushOutAmount * sin(angle);
-                }
-
-                const collisionX = this.centerX + this.currentRadius * cos(angle);
-
-                if (window.audioPlayer && window.audioPlayer.isReady()) {
-                    const sampleIndex1 = this.radiusToSampleIndex(this.currentRadius);
-                    const sampleIndex2 = this.radiusToSampleIndex(other.currentRadius);
-
-                    window.audioPlayer.playSample(sampleIndex1, collisionX, width);
-                    window.audioPlayer.playSample(sampleIndex2, collisionX, width);
-                }
+                ellipse(this.x, this.y, this.radius * 2);
             }
 
             radiusToSampleIndex(radius) {
@@ -399,26 +298,133 @@
             }
         }
 
-        function draw() {
-            background(220);
-
-            spatialGrid.clear(); // Clear at the beginning of each frame
-            circles.forEach(circle => spatialGrid.insert(circle));
-
-            circles.forEach(circle => {
-                circle.update(); // Update now handles sub-stepping and collision checks
-                circle.display();
-            });
-
-            // No need for a separate collision check loop here anymore,
-            // as it's handled within the sub-steps of the update method.
+        // ============ AUDIO PLAYBACK ============
+        function playCollisionSounds(collisions) {
+            if (audioMode === 'synth') {
+                playSynthCollisions(collisions);
+            } else {
+                playSampleCollisions(collisions);
+            }
         }
 
-        // Make functions globally available (though typically not needed in p5.js sketches)
+        /**
+         * Play synth notes (pulsate.js style)
+         */
+        function playSynthCollisions(collisions) {
+            userStartAudio();
+
+            collisions.forEach(({sumRadii}) => {
+                // pulsate.js note calculation algorithm
+                let n = round(200 - constrain(sumRadii, 5, 195));
+                let oct = floor(map(n, 5, 195, 2, 5));
+                let t = n - round(map(oct, 2, 5, 5, 195, true));
+
+                let tone;
+                if (t < 10) tone = "C";
+                else if (t < 20) tone = "D";
+                else if (t < 30) tone = "E";
+                else if (t < 40) tone = "F";
+                else if (t < 50) tone = "G";
+                else tone = "B";
+
+                let note = tone + oct;
+                polySynth.play(note, 0.5, 0, 0.1);
+            });
+        }
+
+        /**
+         * Play sample-based sounds
+         */
+        function playSampleCollisions(collisions) {
+            collisions.forEach(({sumRadii, x, canvasWidth}) => {
+                // Create temporary circle to use radiusToSampleIndex method
+                const tempCircle = new WaveCircle(0, 0);
+                const sampleIndex = tempCircle.radiusToSampleIndex(sumRadii / 2);
+
+                if (window.audioPlayer && window.audioPlayer.isReady()) {
+                    window.audioPlayer.playSample(sampleIndex, x, canvasWidth);
+                }
+            });
+        }
+
+        // ============ EVENT HANDLERS ============
+        function mousePressed() {
+            // Check if click is on any control element
+            let isOverControl = false;
+
+            const checkControl = (element) => {
+                if (element && element.elt) {
+                    const rect = element.elt.getBoundingClientRect();
+                    return mouseX >= rect.left && mouseX <= rect.right &&
+                           mouseY >= rect.top && mouseY <= rect.bottom;
+                }
+                return false;
+            };
+
+            isOverControl = checkControl(clearButton) || checkControl(applyButton) ||
+                          checkControl(modeSelect) || checkControl(rateSlider) ||
+                          checkControl(synthBtn) || checkControl(samplesBtn);
+
+            // Check if click is within canvas bounds and not over controls
+            if (!isOverControl && mouseX >= 0 && mouseX <= width && 
+                mouseY >= 40 && mouseY <= height + 40) {
+                const newCircle = new WaveCircle(mouseX, mouseY, growthSpeed);
+                circles.push(newCircle);
+                
+                if (window.sessionManager) {
+                    window.sessionManager.updateSessionStats(circles);
+                }
+            }
+        }
+
+        function keyPressed() {
+            if (keyCode === 32) { // Space bar
+                clearField();
+            }
+        }
+
+        function clearField() {
+            circles.length = 0;
+            if (window.audioPlayer) {
+                window.audioPlayer.stopAllSources();
+            }
+            if (window.sessionManager) {
+                window.sessionManager.updateSessionStats(circles);
+            }
+            console.log('Cleared all circles');
+        }
+
+        function updatePulsationRate() {
+            pulsationRate = constrain(rateSlider.value(), 0.1, 2.0);
+            circles.forEach(circle => circle.setPulsationRate(pulsationRate));
+        }
+
+        function applyMode() {
+            currentMode = modeSelect.value();
+            clearField();
+            console.log(`Mode changed to: ${currentMode}`);
+        }
+
+        function setAudioMode(mode) {
+            audioMode = mode;
+            
+            if (mode === 'synth') {
+                synthBtn.addClass('active');
+                samplesBtn.removeClass('active');
+            } else {
+                samplesBtn.addClass('active');
+                synthBtn.removeClass('active');
+            }
+            
+            console.log(`Audio mode: ${mode}`);
+        }
+
+        // ============ MAKE FUNCTIONS GLOBALLY AVAILABLE ============
         window.setup = setup;
         window.draw = draw;
-        window.mousePressed = mousePressed; // Keep a global reference
-        // The clearField function doesn't need to be explicitly exposed, it's called directly
+        window.mousePressed = mousePressed;
+        window.keyPressed = keyPressed;
+        window.WaveCircle = WaveCircle;
 
     </script>
 </body>
