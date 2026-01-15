@@ -1,9 +1,13 @@
+/**
+ * AudioPlayer - Handles WAV sample playback with spatial audio
+ * Compatible with both pulsate.js collision system and synth mode
+ */
 class AudioPlayer {
     constructor() {
         this.context = null;
         this.samples = {};
         this.masterGainNode = null;
-        this.compressor = null; // Added compressor
+        this.compressor = null;
         this.playingSources = [];
         this.isLoaded = false;
         this.loadingPromise = null;
@@ -19,7 +23,7 @@ class AudioPlayer {
         
         this.context = new (window.AudioContext || window.webkitAudioContext)();
         
-        // Create compressor node
+        // Create compressor node to prevent clipping
         this.compressor = this.context.createDynamicsCompressor();
         this.compressor.threshold.setValueAtTime(-24, this.context.currentTime);
         this.compressor.knee.setValueAtTime(30, this.context.currentTime);
@@ -77,6 +81,12 @@ class AudioPlayer {
         return await this.context.decodeAudioData(arrayBuffer);
     }
 
+    /**
+     * Play a sample with spatial audio positioning
+     * @param {number} sampleIndex - Sample number (1-44)
+     * @param {number} x - X position for stereo panning
+     * @param {number} canvasWidth - Canvas width for normalization
+     */
     playSample(sampleIndex, x, canvasWidth) {
         if (!this.context || !this.isLoaded || !this.samples[sampleIndex]) {
             return;
@@ -94,6 +104,7 @@ class AudioPlayer {
         const source = this.context.createBufferSource();
         source.buffer = sample;
 
+        // Stereo panner for spatial positioning
         const panner = this.context.createStereoPanner();
         const normalizedX = (x / canvasWidth) * 2 - 1;
         panner.pan.setValueAtTime(normalizedX, this.context.currentTime);
@@ -111,7 +122,7 @@ class AudioPlayer {
         // Connect audio nodes
         source.connect(gainNode);
         gainNode.connect(panner);
-        panner.connect(this.compressor); // Connect to compressor instead of master gain
+        panner.connect(this.compressor);
 
         // Start playback and track the source
         source.start();
