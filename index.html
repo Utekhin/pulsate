@@ -575,7 +575,12 @@
                 else tone = "B";
 
                 let note = tone + oct;
-                polySynth.play(note, 0.5, 0, 0.1);
+                try {
+                    polySynth.play(note, 0.5, 0, 0.1);
+                } catch (e) {
+                    // Ignore p5.sound PolySynth voice management errors
+                    console.warn('PolySynth error (harmless):', e.message);
+                }
             });
         }
 
