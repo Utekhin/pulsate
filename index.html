@@ -486,6 +486,22 @@
             if (collisions.length > 0) {
                 playCollisionSounds(collisions);
             }
+
+            // PHASE 4: Remove circles that grew beyond board
+            const beforeCount = circles.length;
+            for (let i = circles.length - 1; i >= 0; i--) {
+                if (circles[i].markedForDeletion) {
+                    circles.splice(i, 1);
+                }
+            }
+            // Update IDs if any were removed
+            if (circles.length !== beforeCount) {
+                circles.forEach((circle, idx) => circle.id = idx);
+                if (window.sessionManager) {
+                    window.sessionManager.updateSessionStats(circles);
+                }
+                console.log(`Circle grew beyond board and was deleted. Total: ${circles.length}`);
+            }
         }
 
         // ============================================================
@@ -500,6 +516,7 @@
                 this.direction = 1;
                 this.id = circles.length;
                 this.color = color(random(100, 200), random(100, 200), random(150, 255), 180);
+                this.markedForDeletion = false;
             }
 
             setPulsationRate(rate) {
@@ -543,13 +560,14 @@
                     }
                 }
 
+                // Minimum radius boundary (from shrinking after collision)
                 if (this.radius < 1) {
                     this.direction = 1;
                     this.radius = 1;
                 }
+                // Mark for deletion if grown beyond board without collision
                 if (this.radius > 400) {
-                    this.direction = -1;
-                    this.radius = 400;
+                    this.markedForDeletion = true;
                 }
             }
 
