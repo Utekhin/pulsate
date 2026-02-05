@@ -340,6 +340,7 @@
         let isAutoMode = false;
         let autoModeTimeout = null;
         let autoActionCount = 0;
+        let hasReachedMaxObjects = false; // Track if we've ever reached 7
         const AUTO_MAX_OBJECTS = 7;
 
         // UI elements
@@ -675,6 +676,7 @@
         function startAutoMode() {
             isAutoMode = true;
             autoActionCount = 0;
+            hasReachedMaxObjects = false; // Reset the flag
             autoButton.removeClass('secondary');
             autoButton.style('background', '#e91e63');
             autoButton.html('Stop Auto');
@@ -734,19 +736,26 @@
 
             const currentCount = circles.length;
 
-            if (currentCount < AUTO_MAX_OBJECTS) {
-                // Less than 7 objects: randomly create or delete (but must have at least 1 to delete)
-                if (currentCount === 0 || (autoActionCount < AUTO_MAX_OBJECTS && Math.random() < 0.7)) {
-                    // Bias toward creating until we reach 7
+            // Check if we've reached 7 objects
+            if (currentCount >= AUTO_MAX_OBJECTS) {
+                hasReachedMaxObjects = true;
+            }
+
+            if (!hasReachedMaxObjects) {
+                // Haven't reached 7 yet: only create new circles
+                autoCreateCircle();
+                autoActionCount++;
+            } else if (currentCount >= AUTO_MAX_OBJECTS) {
+                // At 7 objects: must delete one
+                autoDeleteRandomCircle();
+            } else {
+                // Below 7 but we've been at 7 before: randomly create or delete
+                if (Math.random() < 0.5) {
                     autoCreateCircle();
                     autoActionCount++;
                 } else {
-                    // Delete a random circle
                     autoDeleteRandomCircle();
                 }
-            } else {
-                // 7 objects: must delete one
-                autoDeleteRandomCircle();
             }
 
             // Schedule next action
