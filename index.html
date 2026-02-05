@@ -335,10 +335,16 @@
         let pulsationRate = 1.0;
         let currentMode = 'chromatic';
         let audioMode = 'samples';
-        
+
+        // Auto mode state
+        let isAutoMode = false;
+        let autoModeTimeout = null;
+        let autoActionCount = 0;
+        const AUTO_MAX_OBJECTS = 7;
+
         // UI elements
         let clearButton, modeSelect, applyButton, rateSlider;
-        let synthBtn, samplesBtn;
+        let synthBtn, samplesBtn, autoButton;
 
         // Audio systems
         let audioPlayer;
@@ -408,6 +414,11 @@
             clearButton = createButton('Clear');
             clearButton.parent(controlsDiv);
             clearButton.mousePressed(clearField);
+
+            autoButton = createButton('Auto');
+            autoButton.parent(controlsDiv);
+            autoButton.addClass('secondary');
+            autoButton.mousePressed(toggleAutoMode);
 
             let sliderContainer = createDiv();
             sliderContainer.class('slider-container');
@@ -593,7 +604,8 @@
 
             const isOverControl = checkControl(clearButton) || checkControl(applyButton) ||
                                 checkControl(modeSelect) || checkControl(rateSlider) ||
-                                checkControl(synthBtn) || checkControl(samplesBtn);
+                                checkControl(synthBtn) || checkControl(samplesBtn) ||
+                                checkControl(autoButton);
 
             if (!isOverControl && mouseX >= 0 && mouseX <= width && 
                 mouseY >= 40 && mouseY <= height + 40) {
@@ -613,6 +625,10 @@
         }
 
         function clearField() {
+            // Stop auto mode if running
+            if (isAutoMode) {
+                stopAutoMode();
+            }
             circles.length = 0;
             if (window.audioPlayer) {
                 window.audioPlayer.stopAllSources();
@@ -634,7 +650,7 @@
 
         function setAudioMode(mode) {
             audioMode = mode;
-            
+
             if (mode === 'synth') {
                 synthBtn.addClass('active');
                 samplesBtn.removeClass('active');
@@ -642,6 +658,140 @@
                 samplesBtn.addClass('active');
                 synthBtn.removeClass('active');
             }
+        }
+
+        // ============================================================
+        // AUTO MODE
+        // ============================================================
+
+        function toggleAutoMode() {
+            if (isAutoMode) {
+                stopAutoMode();
+            } else {
+                startAutoMode();
+            }
+        }
+
+        function startAutoMode() {
+            isAutoMode = true;
+            autoActionCount = 0;
+            autoButton.removeClass('secondary');
+            autoButton.style('background', '#e91e63');
+            autoButton.html('Stop Auto');
+
+            // Reset to default settings
+            pulsationRate = 1.0;
+            rateSlider.value(1.0);
+            circles.forEach(circle => circle.setPulsationRate(pulsationRate));
+
+            // Clear existing circles and start fresh
+            circles.length = 0;
+
+            // Create first object immediately
+            autoCreateCircle();
+            autoActionCount = 1;
+
+            // Schedule next action
+            scheduleNextAutoAction();
+        }
+
+        function stopAutoMode() {
+            isAutoMode = false;
+            autoActionCount = 0;
+            if (autoModeTimeout) {
+                clearTimeout(autoModeTimeout);
+                autoModeTimeout = null;
+            }
+            autoButton.addClass('secondary');
+            autoButton.style('background', '#666');
+            autoButton.html('Auto');
+        }
+
+        function scheduleNextAutoAction() {
+            if (!isAutoMode) return;
+
+            let delayMs;
+
+            if (autoActionCount === 1) {
+                // Object 2: 2-3 seconds after object 1
+                delayMs = randomRange(2000, 3000);
+            } else if (autoActionCount === 2) {
+                // Object 3: 3-8 seconds after object 2
+                delayMs = randomRange(3000, 8000);
+            } else {
+                // Objects 4+: 2-12 seconds after previous action
+                delayMs = randomRange(2000, 12000);
+            }
+
+            autoModeTimeout = setTimeout(() => {
+                if (!isAutoMode) return;
+                performAutoAction();
+            }, delayMs);
+        }
+
+        function performAutoAction() {
+            if (!isAutoMode) return;
+
+            const currentCount = circles.length;
+
+            if (currentCount < AUTO_MAX_OBJECTS) {
+                // Less than 7 objects: randomly create or delete (but must have at least 1 to delete)
+                if (currentCount === 0 || (autoActionCount < AUTO_MAX_OBJECTS && Math.random() < 0.7)) {
+                    // Bias toward creating until we reach 7
+                    autoCreateCircle();
+                    autoActionCount++;
+                } else {
+                    // Delete a random circle
+                    autoDeleteRandomCircle();
+                }
+            } else {
+                // 7 objects: must delete one
+                autoDeleteRandomCircle();
+            }
+
+            // Schedule next action
+            scheduleNextAutoAction();
+        }
+
+        function autoCreateCircle() {
+            // Random position with margin from edges
+            const margin = 50;
+            const x = randomRange(margin, width - margin);
+            const y = randomRange(margin, height - margin);
+
+            const newCircle = new WaveCircle(x, y, growthSpeed);
+            circles.push(newCircle);
+
+            if (window.sessionManager) {
+                window.sessionManager.updateSessionStats(circles);
+            }
+
+            console.log(`Auto: Created circle at (${Math.round(x)}, ${Math.round(y)}). Total: ${circles.length}`);
+        }
+
+        function autoDeleteRandomCircle() {
+            if (circles.length === 0) return;
+
+            // Select random circle to delete
+            const indexToDelete = Math.floor(Math.random() * circles.length);
+
+            // Remove from array
+            circles.splice(indexToDelete, 1);
+
+            // Update IDs of remaining circles to maintain consistency
+            circles.forEach((circle, idx) => {
+                circle.id = idx;
+            });
+
+            if (window.sessionManager) {
+                window.sessionManager.updateSessionStats(circles);
+            }
+
+            console.log(`Auto: Deleted circle. Total: ${circles.length}`);
+        }
+
+        function randomRange(min, max) {
+            return min + Math.random() * (max - min);
         }
     </script>
 </body>
