@@ -827,14 +827,19 @@
             } else if (currentCount >= AUTO_MAX_OBJECTS) {
                 // At 7 objects: must delete one
                 autoDeleteRandomCircle();
-            } else {
-                // Below 7 but we've been at 7 before: randomly create or delete
-                if (Math.random() < 0.5) {
+            } else if (currentCount >= 6) {
+                // 6 circles: can delete (rarely) or create
+                // 30% chance to delete, 70% chance to create
+                if (Math.random() < 0.3) {
+                    autoDeleteRandomCircle();
+                } else {
                     autoCreateCircle();
                     autoActionCount++;
-                } else {
-                    autoDeleteRandomCircle();
                 }
+            } else {
+                // Less than 6 circles: only create, no deletion
+                autoCreateCircle();
+                autoActionCount++;
             }
 
             // Schedule next action
