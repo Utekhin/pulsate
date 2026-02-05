@@ -507,9 +507,16 @@
                                 bumped.push(i);
                             }
 
+                            // Record both circles for dual-voice playback
                             collisions.push({
+                                // Circle 1 (this)
+                                radius1: this.radius,
+                                x1: this.x,
+                                // Circle 2 (other)
+                                radius2: other.radius,
+                                x2: other.x,
+                                // Legacy (for synth mode)
                                 sumRadii: big + small,
-                                x: this.x,
                                 canvasWidth: width
                             });
                         }
@@ -585,13 +592,24 @@
         }
 
         function playSampleCollisions(collisions) {
-            collisions.forEach(({sumRadii, x, canvasWidth}) => {
-                const tempCircle = new WaveCircle(0, 0);
-                const sampleIndex = tempCircle.radiusToSampleIndex(sumRadii / 2);
+            const tempCircle = new WaveCircle(0, 0); // For radiusToSampleIndex
 
-                if (window.audioPlayer && window.audioPlayer.isReady()) {
-                    window.audioPlayer.playSample(sampleIndex, x, canvasWidth);
-                }
+            collisions.forEach(({radius1, x1, radius2, x2, canvasWidth}) => {
+                if (!window.audioPlayer || !window.audioPlayer.isReady()) return;
+
+                // Calculate sample indices based on each circle's radius
+                const sampleIndex1 = tempCircle.radiusToSampleIndex(radius1);
+                const sampleIndex2 = tempCircle.radiusToSampleIndex(radius2);
+
+                // Calculate stereo positions with slight separation
+                // Shift circle1 slightly left, circle2 slightly right
+                const stereoOffset = 50; // pixels of stereo separation
+                const pan1 = Math.max(0, x1 - stereoOffset);
+                const pan2 = Math.min(canvasWidth, x2 + stereoOffset);
+
+                // Play both circles' voices
+                window.audioPlayer.playSample(sampleIndex1, pan1, canvasWidth);
+                window.audioPlayer.playSample(sampleIndex2, pan2, canvasWidth);
             });
         }
 
