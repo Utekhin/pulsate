@@ -341,8 +341,9 @@
         let isAutoMode = false;
         let autoModeTimeout = null;
         let autoActionCount = 0;
-        let hasReachedMaxObjects = false; // Track if we've ever reached 7
-        const AUTO_MAX_OBJECTS = 7;
+        let hasReachedMaxObjects = false; // Track if we've ever reached max
+        const AUTO_MAX_OBJECTS = 15;
+        const AUTO_MIN_FOR_DELETION = 6; // Deletion only allowed at 6+ circles
 
         // UI elements
         let clearButton, modeSelect, applyButton, rateSlider;
@@ -855,22 +856,24 @@
 
             const currentCount = circles.length;
 
-            // Check if we've reached 7 objects
+            // Check if we've reached max objects
             if (currentCount >= AUTO_MAX_OBJECTS) {
                 hasReachedMaxObjects = true;
             }
 
             if (!hasReachedMaxObjects) {
-                // Haven't reached 7 yet: only create new circles
+                // Haven't reached max yet: only create new circles
                 autoCreateCircle();
                 autoActionCount++;
             } else if (currentCount >= AUTO_MAX_OBJECTS) {
-                // At 7 objects: must delete one
+                // At 15 objects: must delete one
                 autoDeleteRandomCircle();
-            } else if (currentCount >= 6) {
-                // 6 circles: can delete (rarely) or create
-                // 30% chance to delete, 70% chance to create
-                if (Math.random() < 0.3) {
+            } else if (currentCount >= AUTO_MIN_FOR_DELETION) {
+                // 6-14 circles: deletion probability increases toward max
+                // At 6: 10%, at 7: 20%, at 10: 50%, at 14: 90%
+                const deletionProbability = 0.1 + (currentCount - AUTO_MIN_FOR_DELETION) * 0.1;
+
+                if (Math.random() < deletionProbability) {
                     autoDeleteRandomCircle();
                 } else {
                     autoCreateCircle();
