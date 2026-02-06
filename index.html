@@ -468,6 +468,9 @@
         function draw() {
             background(20);
 
+            // Update collision cooldowns
+            updateCollisionCooldowns();
+
             const bumped = [];
             const collisions = [];
 
@@ -505,6 +508,37 @@
         }
 
         // ============================================================
+        // COLLISION PAIR COOLDOWN (prevents vibration/sticking)
+        // ============================================================
+        const collisionCooldowns = new Map(); // key: "id1-id2", value: frames remaining
+        const COLLISION_COOLDOWN_FRAMES = 20; // ~0.33 seconds at 60fps
+
+        function getPairKey(id1, id2) {
+            return id1 < id2 ? `${id1}-${id2}` : `${id2}-${id1}`;
+        }
+
+        function canPairCollide(id1, id2) {
+            const key = getPairKey(id1, id2);
+            const cooldown = collisionCooldowns.get(key);
+            return !cooldown || cooldown <= 0;
+        }
+
+        function registerPairCollision(id1, id2) {
+            const key = getPairKey(id1, id2);
+            collisionCooldowns.set(key, COLLISION_COOLDOWN_FRAMES);
+        }
+
+        function updateCollisionCooldowns() {
+            for (const [key, frames] of collisionCooldowns) {
+                if (frames <= 0) {
+                    collisionCooldowns.delete(key);
+                } else {
+                    collisionCooldowns.set(key, frames - 1);
+                }
+            }
+        }
+
+        // ============================================================
         // CIRCLE CLASS (PULSATE.JS STYLE)
         // ============================================================
         class WaveCircle {
@@ -533,7 +567,9 @@
                         const big = max(this.radius, other.radius);
                         const small = min(this.radius, other.radius);
 
-                        if (distance + small > big) {
+                        // Check if edges are touching (not one inside the other)
+                        // AND this pair hasn't collided recently
+                        if (distance + small > big && canPairCollide(this.id, i)) {
                             if (!bumped.includes(this.id)) {
                                 this.direction *= -1;
                                 bumped.push(this.id);
@@ -543,6 +579,9 @@
                                 other.direction *= -1;
                                 bumped.push(i);
                             }
+
+                            // Register cooldown to prevent rapid re-collision
+                            registerPairCollision(this.id, i);
 
                             // Record both circles for dual-voice playback
                             collisions.push({
@@ -698,6 +737,7 @@
                 stopAutoMode();
             }
             circles.length = 0;
+            collisionCooldowns.clear(); // Clear collision tracking
             if (window.audioPlayer) {
                 window.audioPlayer.stopAllSources();
             }
